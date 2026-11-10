@@ -58,11 +58,15 @@ export default function App() {
         if (data.users && data.users.length > 0) {
           const mapped = data.users.map((d: any) => {
             let parsedMain = [];
+            let parsedJp = {};
             try {
               parsedMain = typeof d.main_jumpers === 'string' ? JSON.parse(d.main_jumpers) : (d.main_jumpers || []);
-            } catch (e) {
-              parsedMain = [];
-            }
+            } catch (e) { parsedMain = []; }
+
+            try {
+              parsedJp = typeof d.jumper_points === 'string' ? JSON.parse(d.jumper_points) : (d.jumper_points || {});
+            } catch (e) { parsedJp = {}; }
+
             return {
               id: d.id,
               username: d.username,
@@ -71,7 +75,7 @@ export default function App() {
               points: d.points || 0,
               mainJumpers: parsedMain,
               reserveJumper: d.reserve_jumper || null,
-              jumperPoints: {}
+              jumperPoints: parsedJp
             };
           });
           setUsersDb(mapped);
@@ -156,7 +160,8 @@ export default function App() {
         body: JSON.stringify({
           userId: updatedUser.id,
           mainJumpers: updatedUser.mainJumpers,
-          reserveJumper: updatedUser.reserveJumper
+          reserveJumper: updatedUser.reserveJumper,
+          jumperPoints: updatedUser.jumperPoints
         })
       });
     } catch (err) {
@@ -195,39 +200,57 @@ export default function App() {
     syncRosterToDb(updatedUser);
   };
 
-  // ULEPSZONY PARSER WYNIKÓW Z PDF / TEKSTU
+  // INTELIGENTNY PARSER WYNIKÓW FIS (DOPASOWUJE PO MIEJSCU I NAZWISKU)
   const handleParseAndApplyResults = async () => {
     if (!pdfText.trim()) return alert("Wklej tekst wyników!");
 
     const fisPoints = [100, 80, 60, 50, 45, 40, 36, 32, 29, 26, 24, 22, 20, 18, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
     const parsed: {name: string; rank: number; points: number}[] = [];
-    const lowerText = pdfText.toLowerCase();
+    
+    // Dzielimy wklejony tekst na linie
+    const lines = pdfText.split('\n');
 
-    let rankCounter = 1;
     INITIAL_JUMPERS.forEach(jumper => {
-      // Sprawdzamy po nazwisku (ostatni człon imienia lub całe imię i nazwisko)
       const parts = jumper.split(' ');
-      const lastName = parts[parts.length - 1].toLowerCase();
-      
-      if (lowerText.includes(jumper.toLowerCase()) || lowerText.includes(lastName)) {
-        if (rankCounter <= 30) {
-          parsed.push({ name: jumper, rank: rankCounter, points: fisPoints[rankCounter - 1] || 0 });
-          rankCounter++;
+      const lastName = parts[parts.length - 1].toLowerCase(); // np. "stoch" lub "kubacki"
+      const firstName = parts[0].toLowerCase();
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].toLowerCase();
+        // Szukamy linijki zawierającej nazwisko skoczka
+        if (line.includes(lastName) || (line.includes(firstName) && line.includes(lastName))) {
+          // Próbujemy wyczytać pozycję (rank) z tej samej linijki lub linii sąsiednich
+          for (let r = 1; r <= 30; r++) {
+            // Sprawdzamy czy linijka zaczyna się od numeru rankingu lub zawiera np. "1." lub "31."
+            if (line.trim().startsWith(`${r}.`) || line.includes(`${r}.`) || (i > 0 && lines[i-1].includes(`${r}.`))) {
+              // Upewnij się, że nie dodaliśmy go już wcześniej
+              if (!parsed.some(p => p.name === jumper)) {
+                parsed.push({ name: jumper, rank: r, points: fisPoints[r - 1] || 0 });
+              }
+              break;
+            }
+          }
         }
       }
     });
 
-    if (parsed.length === 0) return alert("Nie rozpoznano żadnego skoczka. Upewnij się, że wkleiłeś oficjalne wyniki.");
+    if (parsed.length === 0) {
+      return alert("Nie udało się automatycznie dopasować skoczków. Upewnij się, że wklejasz oficjalne wyniki w formacie tekstowym z tabeli.");
+    }
 
+    // Przeliczamy i sumujemy punkty dla każdego użytkownika
     const updatedUsers = usersDb.map(user => {
       let totalMatchPoints = 0;
       const newJp = { ...user.jumperPoints };
 
+      // Sumujemy punkty dla skoczków z głównego składu
       user.mainJumpers.forEach(jName => {
         const match = parsed.find(p => p.name.toLowerCase() === jName.toLowerCase());
         const pts = match ? match.points : 0;
-        newJp[jName] = (newJp[jName] || 0) + pts;
-        totalMatchPoints += pts;
+        if (pts > 0) {
+          newJp[jName] = (newJp[jName] || 0) + pts;
+          totalMatchPoints += pts;
+        }
       });
 
       const newTotal = user.points + totalMatchPoints;
@@ -241,15 +264,16 @@ export default function App() {
 
     setRecentContests(prev => [{ name: `Konkurs z dnia ${new Date().toLocaleDateString()}`, results: parsed }, ...prev]);
 
+    // Zapisujemy zaktualizowane punkty w bazie D1 dla każdego użytkownika
     for (const u of updatedUsers) {
       await fetch('/api/admin/update-points', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: u.id, points: u.points })
+        body: JSON.stringify({ userId: u.id, points: u.points, jumperPoints: u.jumperPoints })
       }).catch(() => {});
     }
 
-    setImportStatus(`Sukces! Dopasowano ${parsed.length} skoczków i przeliczono punkty.`);
+    setImportStatus(`Sukces! Dopasowano ${parsed.length} skoczków i zaktualizowano punkty na bieżąco.`);
     setPdfText('');
   };
 
@@ -268,7 +292,7 @@ export default function App() {
       await fetch('/api/admin/update-points', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, points: newPts })
+        body: JSON.stringify({ userId, points: newPts, jumperPoints: target.jumperPoints })
       });
       alert(`Zaktualizowano punkty w bazie do wartości: ${newPts}`);
     } catch (err) {
@@ -431,7 +455,7 @@ export default function App() {
 
                     {isExpanded && (
                       <div className="px-4 pb-4 pt-2 bg-slate-900/30 border-t border-slate-800/80 space-y-3">
-                        <h4 className="text-xs font-semibold text-slate-400 uppercase">Skład i punkty zawodników:</h4>
+                        <h4 className="text-xs font-semibold text-slate-400 uppercase">Skład i łączne punkty zawodników:</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                           {user.mainJumpers.map((jumperName, jIdx) => (
                             <div key={jIdx} className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between text-xs">
