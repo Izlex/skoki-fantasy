@@ -1,13 +1,36 @@
 import React, { useState } from 'react';
 import { Trophy, Users, Shield, FileText, Award, CheckCircle, Trash2, Search, UserCheck, Edit3 } from 'lucide-react';
 
+// Pełna, szeroka lista wszystkich skoczków startujących w Pucharze Świata
 const INITIAL_JUMPERS = [
-  "Stefan Kraft", "Ryoyu Kobayashi", "Andreas Wellinger", "Jan Hoerl", "Peter Prevc",
-  "Michael Hayboeck", "Johann Andre Forfang", "Marius Lindvik", "Manuel Fettner", "Daniel Huber",
-  "Aleksander Zniszczoł", "Dawid Kubacki", "Piotr Żyła", "Kamil Stoch", "Paweł Wąsek",
-  "Maciej Kot", "Gregor Deschwanden", "Domen Prevc", "Anze Lanisek", "Timiku Zajc",
-  "Lovro Kos", "Karl Geiger", "Pius Paschke", "Stephan Leyhe", "Philipp Raimund",
-  "Halvor Egner Granerud", "Kristoffer Eriksen Sundal", "Ren Nikaido", "Tate Frantz", "Niko Kytosaho"
+  // Polska
+  "Aleksander Zniszczoł", "Dawid Kubacki", "Piotr Żyła", "Kamil Stoch", "Paweł Wąsek", 
+  "Maciej Kot", "Kacper Tomasiak", "Klemens Joniak", "Jakub Wolny", "Andrzej Stękała", "Klemens Murańka",
+  // Austria
+  "Stefan Kraft", "Jan Hoerl", "Daniel Tschofenig", "Manuel Fettner", "Daniel Huber", 
+  "Michael Hayboeck", "Stephan Embacher", "Jonas Schuster", "Maximilian Ortner", "Manuel Poppinger",
+  // Niemcy
+  "Andreas Wellinger", "Philipp Raimund", "Karl Geiger", "Pius Paschke", "Stephan Leyhe", 
+  "Felix Hoffmann", "Constantin Schmid", "Martin Hamann", "Luca Roth", "David Siegel",
+  // Norwegia
+  "Johann Andre Forfang", "Marius Lindvik", "Kristoffer Eriksen Sundal", "Halvor Egner Granerud", 
+  "Benjamin Østvold", "Robin Pedersen", "Sindre Ulven Jørgensen", "Bendik Jakobsen Heggli",
+  // Słowenia
+  "Peter Prevc", "Domen Prevc", "Anze Lanisek", "Timi Zajc", "Lovro Kos", 
+  "Ziga Jelar", "Matija Vidic", "Rok Masle", "Maksim Bartolj",
+  // Japonia
+  "Ryoyu Kobayashi", "Ren Nikaido", "Naoki Nakamura", "Junshiro Kobayashi", 
+  "Keiichi Sato", "Yumu Harada", "Tomofumi Naito", "Asahi Sakano",
+  // Szwajcaria
+  "Gregor Deschwanden", "Killian Peier", "Simon Ammann", "Remo Imhof", "Yanick Wasser",
+  // Finlandia
+  "Niko Kytosaho", "Kasperi Valto", "Antti Aalto", "Eetu Nousiainen", "Vilho Palosaari",
+  // Włochy
+  "Giovanni Bresadola", "Alex Insam", "Francesco Cecon", "Andrea Campregher",
+  // USA i Kanada
+  "Tate Frantz", "Kevin Bickner", "Decker Dean", "Erik Belshaw", "Mackenzie Boyd-Clowes", "Matthew Soukup",
+  // Francja, Czechy, Bułgaria, Kazachstan, Rumunija
+  "Valentin Foubert", "Roman Koudelka", "Radek Rýdl", "Vladimir Zografski", "Danil Vassilyev", "Svyatoslav Nazarenko", "Daniel Cacina"
 ];
 
 interface TeamState {
@@ -19,7 +42,6 @@ interface TeamState {
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'team' | 'settings' | 'contests' | 'admin'>('dashboard');
   
-  // Stan zalogowanego użytkownika (symulacja sesji)
   const [currentUser, setCurrentUser] = useState({
     username: 'admin',
     role: 'admin',
@@ -27,8 +49,8 @@ export default function App() {
 
   const [myTeam, setMyTeam] = useState<TeamState>({
     teamName: 'Drużyna Administratora',
-    main: ["Stefan Kraft", "Andreas Wellinger", "Aleksander Zniszczoł"],
-    reserve: "Kamil Stoch"
+    main: ["Stefan Kraft", "Andreas Wellinger", "Aleksander Zniszczoł", "Dawid Kubacki", "Kamil Stoch"],
+    reserve: "Piotr Żyła"
   });
 
   const [tempTeamName, setTempTeamName] = useState(myTeam.teamName);
@@ -37,7 +59,6 @@ export default function App() {
   const [parsedResults, setParsedResults] = useState<{name: string; rank: number; points: number}[]>([]);
   const [importStatus, setImportStatus] = useState('');
 
-  // Zarządzanie składem
   const addJumper = (name: string, isReserve: boolean) => {
     if (isReserve) {
       if (myTeam.reserve) return alert("Masz już wybranego skoczka rezerwowego!");
@@ -169,13 +190,12 @@ export default function App() {
           </div>
         )}
 
-        {/* USTAWIENIA DRUŻYNY (EDYCJA NAZWY) */}
         {activeTab === 'settings' && (
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl max-w-xl">
             <h2 className="text-lg font-bold mb-2 text-slate-200 flex items-center gap-2">
               <Edit3 className="w-5 h-5 text-blue-400" /> Edycja Nazwy Drużyny
             </h2>
-            <p className="text-xs text-slate-400 mb-6">Wpisz nową nazwę, pod którą Twoja drużyna będzie widoczna dla wszystkich uczestników w tabeli ligowej.</p>
+            <p className="text-xs text-slate-400 mb-6">Wpisz nową nazwę, pod którą Twoja drużyna będzie widoczna w tabeli ligowej.</p>
             
             <form onSubmit={handleSaveTeamName} className="space-y-4">
               <div>
@@ -240,12 +260,12 @@ export default function App() {
             <div className="lg:col-span-2 space-y-4">
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
                 <div className="flex items-center justify-between gap-4">
-                  <h2 className="text-md font-bold text-slate-200">Wybierz Skoczków</h2>
+                  <h2 className="text-md font-bold text-slate-200">Wybierz Skoczków ({INITIAL_JUMPERS.length} dostępnych)</h2>
                   <div className="relative w-64">
                     <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
                     <input 
                       type="text" 
-                      placeholder="Szukaj..." 
+                      placeholder="Szukaj skoczka..." 
                       value={searchTerm}
                       onChange={e => setSearchTerm(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
@@ -255,4 +275,65 @@ export default function App() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[450px] overflow-y-auto pr-2">
                   {filteredJumpers.map((jumper, idx) => {
-                    const isSelectedMain = myTeam.main.includes(j
+                    const isSelectedMain = myTeam.main.includes(jumper);
+                    const isSelectedReserve = myTeam.reserve === jumper;
+
+                    return (
+                      <div key={idx} className="p-3 bg-slate-950 border border-slate-800/80 rounded-xl flex items-center justify-between">
+                        <span className="text-xs font-medium text-slate-200">{jumper}</span>
+                        <div className="flex gap-1">
+                          <button 
+                            disabled={isSelectedMain || isSelectedReserve}
+                            onClick={() => addJumper(jumper, false)}
+                            className="px-2 py-1 bg-blue-900/40 hover:bg-blue-600 text-blue-200 text-[10px] rounded-lg border border-blue-500/30 disabled:opacity-30"
+                          >
+                            + Skład
+                          </button>
+                          <button 
+                            disabled={isSelectedMain || isSelectedReserve}
+                            onClick={() => addJumper(jumper, true)}
+                            className="px-2 py-1 bg-yellow-900/40 hover:bg-yellow-600 text-yellow-200 text-[10px] rounded-lg border border-yellow-500/30 disabled:opacity-30"
+                          >
+                            + Rezerwa
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'contests' && (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 text-center py-12 text-slate-400">
+            Brak rozegranych konkursów.
+          </div>
+        )}
+
+        {activeTab === 'admin' && currentUser.role === 'admin' && (
+          <div className="bg-slate-900/60 border border-yellow-500/30 rounded-2xl p-6 shadow-xl space-y-4">
+            <h2 className="text-lg font-bold text-yellow-400 flex items-center gap-2">
+              <Shield className="w-5 h-5" /> Import Wyników Konkursu (PDF / Tekst)
+            </h2>
+            <textarea 
+              rows={6}
+              value={pdfText}
+              onChange={e => setPdfText(e.target.value)}
+              placeholder="Wklej tekst z pliku PDF z wynikami FIS..."
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-yellow-500"
+            />
+            <button 
+              onClick={handleParseResults}
+              className="px-4 py-2.5 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-2"
+            >
+              <CheckCircle className="w-4 h-4" /> Przetwórz i Przelicz Wyniki
+            </button>
+            {importStatus && <div className="p-3 bg-green-950/40 border border-green-500/30 rounded-xl text-green-300 text-xs">{importStatus}</div>}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
