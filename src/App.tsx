@@ -721,4 +721,29 @@ export default function App() {
                 </div>
 
                 <div className="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-3">
-                  <h3 className="text-xs font-semibold text-slate-200 flex
+                  <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-yellow-400" /> Automatyczny Import PDF FIS
+                  </h3>
+                  <textarea 
+                    rows={3}
+                    value={pdfText}
+                    onChange={e => setPdfText(e.target.value)}
+                    placeholder="Wklej tekst z pliku PDF z wynikami FIS..."
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:border-yellow-500"
+                  />
+                  <button 
+                    onClick={handleParseAndApplyResults}
+                    className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-lg transition"
+                  >
+                    Przetwórz i Przelicz Ligię
+                  </button>
+                  {importStatus && <div className="text-[11px] text-green-400">{importStatus}</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
