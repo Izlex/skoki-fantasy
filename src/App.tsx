@@ -87,7 +87,7 @@ export default function App() {
   const [newUsernameInput, setNewUsernameInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
 
-  // Pobieranie danych z bazy przy starcie
+  // Pobranie aktualnego stanu z bazy przy starcie
   useEffect(() => {
     fetch('/api/users')
       .then(res => res.json())
@@ -142,9 +142,38 @@ export default function App() {
     }
   };
 
-  // Parser PDF / Wyników konkursu FIS i aktualizacja tabeli
+  // Zmiana loginu i hasła w bazie przez Admina
+  const handleAdminUpdateCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUsernameInput || !newPasswordInput) return alert("Wprowadź nowy login i hasło!");
+
+    const updated = usersDb.map(u => u.id === editUserTarget ? { ...u, username: newUsernameInput } : u);
+    setUsersDb(updated);
+
+    try {
+      const res = await fetch('/api/admin/update-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: editUserTarget,
+          newUsername: newUsernameInput,
+          newPassword: newPasswordInput
+        })
+      });
+      if (res.ok) {
+        alert(`Zaktualizowano dane logowania w bazie D1! Nowy login: ${newUsernameInput}`);
+        setNewUsernameInput('');
+        setNewPasswordInput('');
+      } else {
+        alert("Błąd zapisu w bazie.");
+      }
+    } catch (err) {
+      alert("Błąd połączenia z bazą D1.");
+    }
+  };
+
   const handleParseAndApplyResults = async () => {
-    if (!pdfText.trim()) return alert("Wklej tekst wyników konkursu!");
+    if (!pdfText.trim()) return alert("Wklej tekst wyników!");
 
     const fisPoints = [100, 80, 60, 50, 45, 40, 36, 32, 29, 26, 24, 22, 20, 18, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
     let rankCounter = 1;
@@ -157,9 +186,8 @@ export default function App() {
       }
     });
 
-    if (parsed.length === 0) return alert("Nie udało się rozpoznać żadnego skoczka z listy. Sprawdź format tekstu.");
+    if (parsed.length === 0) return alert("Nie rozpoznano żadnego skoczka.");
 
-    // Przeliczanie punktów dla każdego użytkownika na podstawie jego składu (5 głównych + rezerwowy w razie braku)
     const updatedUsers = usersDb.map(user => {
       let totalMatchPoints = 0;
       const newJp = { ...user.jumperPoints };
@@ -171,13 +199,6 @@ export default function App() {
         totalMatchPoints += pts;
       });
 
-      // Rezerwowy punktuje tylko wtedy, gdy któryś z głównych nie zdobył punktów (uproszczona reguła ligowa)
-      if (user.reserveJumper) {
-        const resMatch = parsed.find(p => p.name === user.reserveJumper);
-        const resPts = resMatch ? resMatch.points : 0;
-        newJp[user.reserveJumper] = (newJp[user.reserveJumper] || 0) + resPts;
-      }
-
       const newTotal = user.points + totalMatchPoints;
       return { ...user, points: newTotal, jumperPoints: newJp };
     });
@@ -187,10 +208,9 @@ export default function App() {
       setCurrentUser(updatedUsers.find(u => u.id === currentUser.id) || currentUser);
     }
 
-    // Zapisz w zakładce wyników konkursów
     setRecentContests(prev => [{ name: `Konkurs z dnia ${new Date().toLocaleDateString()}`, results: parsed }, ...prev]);
 
-    // Zapisz punkty w bazie D1 dla każdego użytkownika
+    // Trwały zapis w D1
     for (const u of updatedUsers) {
       await fetch('/api/admin/update-points', {
         method: 'POST',
@@ -199,7 +219,7 @@ export default function App() {
       }).catch(() => {});
     }
 
-    setImportStatus(`Pomyślnie przetworzono konkurs! Dopasowano ${parsed.length} skoczków i zaktualizowano tabele.`);
+    setImportStatus(`Przetworzono pomyślnie! Dopasowano ${parsed.length} skoczków.`);
     setPdfText('');
   };
 
@@ -230,14 +250,14 @@ export default function App() {
     if (!currentUser) return;
     if (isReserve) {
       if (currentUser.reserveJumper) return alert("Masz już rezerwowego!");
-      if (currentUser.mainJumpers.includes(name)) return alert("Skoczek jest w składzie!");
+      if (currentUser.mainJumpers.includes(name)) return alert("Skoczek w składzie!");
       const updatedUser = { ...currentUser, reserveJumper: name };
       setCurrentUser(updatedUser);
       setUsersDb(usersDb.map(u => u.id === currentUser.id ? updatedUser : u));
     } else {
       if (currentUser.mainJumpers.length >= 5) return alert("Maksymalnie 5 skoczków!");
-      if (currentUser.mainJumpers.includes(name)) return alert("Skoczek jest już w składzie!");
-      if (currentUser.reserveJumper === name) return alert("Ten skoczek jest rezerwowym!");
+      if (currentUser.mainJumpers.includes(name)) return alert("Skoczek już w składzie!");
+      if (currentUser.reserveJumper === name) return alert("Skoczek jest rezerwowym!");
       const updatedUser = { ...currentUser, mainJumpers: [...currentUser.mainJumpers, name] };
       setCurrentUser(updatedUser);
       setUsersDb(usersDb.map(u => u.id === currentUser.id ? updatedUser : u));
@@ -377,7 +397,7 @@ export default function App() {
 
       <main className="flex-1 p-6 max-w-6xl mx-auto w-full space-y-6">
         
-        {/* ZAKŁADKA 1: KLASYFIKACJA (BEZ NAPISU LOGIN W GŁÓWNYM NAGŁÓWKU DRUŻYNY) */}
+        {/* ZAKŁADKA 1: KLASYFIKACJA (BEZ NAPISU WŁAŚCICIEL / LOGIN W NAGŁÓWKU) */}
         {activeTab === 'dashboard' && (
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
             <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
@@ -399,9 +419,8 @@ export default function App() {
                           {index + 1}
                         </span>
                         <div>
-                          {/* Tylko nazwa drużyny jako główny nagłówek, login ukryty w podglądzie po rozwinięciu */}
+                          {/* Tylko nazwa drużyny w głównym wierszu */}
                           <h3 className="font-bold text-sm text-white">{user.teamName}</h3>
-                          <p className="text-xs text-slate-400">Właściciel: {user.username}</p>
                         </div>
                       </div>
 
@@ -559,7 +578,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ZAKŁADKA 4: WYNIKI KONKURSÓW (AKTYWNA) */}
+        {/* ZAKŁADKA 4: WYNIKI KONKURSÓW */}
         {activeTab === 'contests' && (
           <div className="space-y-6">
             <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
@@ -587,13 +606,62 @@ export default function App() {
           </div>
         )}
 
-        {/* ZAKŁADKA 5: PANEL STEROWANIA ADMINA */}
+        {/* ZAKŁADKA 5: PANEL STEROWANIA ADMINA (PRZYWRÓCONA EDYCJA LOGINA I HASŁA) */}
         {activeTab === 'admin' && currentUser.role === 'admin' && (
           <div className="space-y-6">
             <div className="bg-slate-900/60 border border-yellow-500/30 rounded-2xl p-6 shadow-xl space-y-6">
               <h2 className="text-lg font-bold text-yellow-400 flex items-center gap-2">
                 <Shield className="w-5 h-5" /> Panel Sterowania Administratora
               </h2>
+
+              {/* SEKCJA: ZARZĄDZANIE KONTAMI (LOGIN / HASŁO) */}
+              <div className="bg-slate-950 p-5 border border-slate-800 rounded-xl space-y-4">
+                <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-2">
+                  <Key className="w-4 h-4 text-yellow-400" /> Zarządzanie Kontami (Edycja Loginu i Hasła w D1)
+                </h3>
+                <form onSubmit={handleAdminUpdateCredentials} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Wybierz Uczestnika</label>
+                    <select 
+                      value={editUserTarget}
+                      onChange={e => setEditUserTarget(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white"
+                    >
+                      {usersDb.map(u => (
+                        <option key={u.id} value={u.id}>{u.username} ({u.teamName})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Nowy Login</label>
+                    <input 
+                      type="text" 
+                      value={newUsernameInput}
+                      onChange={e => setNewUsernameInput(e.target.value)}
+                      placeholder="Nowy login..."
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-yellow-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Nowe Hasło</label>
+                    <input 
+                      type="text" 
+                      value={newPasswordInput}
+                      onChange={e => setNewPasswordInput(e.target.value)}
+                      placeholder="Nowe hasło..."
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-yellow-500"
+                    />
+                  </div>
+                  <div className="sm:col-span-3 pt-2">
+                    <button 
+                      type="submit"
+                      className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-lg transition"
+                    >
+                      Zapisz Nowy Login i Hasło w Bazie D1
+                    </button>
+                  </div>
+                </form>
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Ręczna korekta punktów */}
