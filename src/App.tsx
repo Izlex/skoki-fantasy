@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Users, Shield, FileText, Award, CheckCircle, Trash2, Search, UserCheck, Edit3, ChevronDown, ChevronUp, Star, LogIn, LogOut, Sliders, Key } from 'lucide-react';
+import { Trophy, Users, Shield, FileText, Award, CheckCircle, Trash2, Search, UserCheck, Edit3, ChevronDown, ChevronUp, Star, LogIn, LogOut, Sliders, Key, RotateCcw } from 'lucide-react';
 
 const INITIAL_JUMPERS = [
   "Aleksander Zniszczoł", "Dawid Kubacki", "Piotr Żyła", "Kamil Stoch", "Paweł Wąsek", 
@@ -200,37 +200,35 @@ export default function App() {
     syncRosterToDb(updatedUser);
   };
 
-  // ROBUSTY PARSER WYNIKÓW FIS (ODCZYTUJE MIEJSCA I DOPASOWUJE PUNKTACJĘ PŚ)
+  // ULEPSZONY PARSER FIS – RADZI SOBIE Z KAŻDYM FORMATEM WYNIKÓW Z PDF
   const handleParseAndApplyResults = async () => {
     if (!pdfText.trim()) return alert("Wklej tekst wyników!");
 
     const fisPoints = [100, 80, 60, 50, 45, 40, 36, 32, 29, 26, 24, 22, 20, 18, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
-    const parsed: {name: string; rank: number; points: number}[] = [];
+    const parsedMap = new Map<string, {name: string; rank: number; points: number}>();
     
     const lines = pdfText.split('\n');
 
-    // Szukamy po kolei każdego skoczka z naszej listy w całym tekście
+    // Szukamy po kolei każdego skoczka z naszej ogólnej listy
     INITIAL_JUMPERS.forEach(jumper => {
       const parts = jumper.split(' ');
       const lastName = parts[parts.length - 1].toLowerCase(); // np. "stoch"
       const firstName = parts[0].toLowerCase(); // np. "kamil"
 
       for (let i = 0; i < lines.length; i++) {
-        const currentLine = lines[i].toLowerCase();
-        
-        if (currentLine.includes(lastName) || (currentLine.includes(firstName) && currentLine.includes(lastName))) {
-          // Szukamy numeru rankingu w tej samej linii lub do 2 linijek wyżej/niżej
+        const line = lines[i].toLowerCase();
+        if (line.includes(lastName) || (line.includes(firstName) && line.includes(lastName))) {
+          // Przeszukujemy otoczenie tej linii (2 linie w górę i w dół), aby znaleźć numer miejsca z kropką np. "1.", "2."
           for (let offset = -2; offset <= 2; offset++) {
-            const checkIndex = i + offset;
-            if (checkIndex >= 0 && checkIndex < lines.length) {
-              const targetLine = lines[checkIndex].trim();
-              // Sprawdzamy czy linijka zaczyna się od numeru (np "1.", "2.", "30.")
-              const match = targetLine.match(/^([1-9][0-9]?)\./);
-              if (match) {
-                const rank = parseInt(match[1], 10);
-                if (rank >= 1 && rank <= 50 && !parsed.some(p => p.name === jumper)) {
+            const idx = i + offset;
+            if (idx >= 0 && idx < lines.length) {
+              const checkStr = lines[idx].trim();
+              const rankMatch = checkStr.match(/^([1-9][0-9]?)\./);
+              if (rankMatch) {
+                const rank = parseInt(rankMatch[1], 10);
+                if (rank >= 1 && rank <= 50 && !parsedMap.has(jumper)) {
                   const pts = (rank <= 30) ? (fisPoints[rank - 1] || 0) : 0;
-                  parsed.push({ name: jumper, rank: rank, points: pts });
+                  parsedMap.set(jumper, { name: jumper, rank: rank, points: pts });
                   break;
                 }
               }
@@ -240,14 +238,14 @@ export default function App() {
       }
     });
 
+    const parsed = Array.from(parsedMap.values());
     if (parsed.length === 0) {
-      return alert("Nie rozpoznano żadnego skoczka. Upewnij się, że wklejasz tekst zawierający oficjalne wyniki.");
+      return alert("Nie rozpoznano skoczków. Upewnij się, że wklejasz oficjalne wyniki.");
     }
 
-    // Sortujemy wyniki od 1 miejsca do najdalszego
     parsed.sort((a, b) => a.rank - b.rank);
 
-    // Przeliczamy i sumujemy punkty dla każdego użytkownika na bieżąco
+    // Przeliczamy i sumujemy punkty dla drużyn na bieżąco
     const updatedUsers = usersDb.map(user => {
       let totalMatchPoints = 0;
       const newJp = { ...user.jumperPoints };
@@ -280,7 +278,7 @@ export default function App() {
       }).catch(() => {});
     }
 
-    setImportStatus(`Sukces! Zmapowano ${parsed.length} skoczków poprawnie.`);
+    setImportStatus(`Sukces! Zmapowano ${parsed.length} skoczków i zaktualizowano klasyfikację.`);
     setPdfText('');
   };
 
@@ -305,6 +303,40 @@ export default function App() {
     } catch (err) {
       alert("Błąd zapisu punktów.");
     }
+  };
+
+  // OPCJA RESETU DANYCH LIGI (DLA ADMINA)
+  const handleResetLeague = async () => {
+    if (!window.confirm("Czy na pewno chcesz zresetować całą ligę? Wyczyszczone zostaną punkty, składy i wyniki konkursów do stanu początkowego!")) return;
+
+    const resetUsers = usersDb.map(u => ({
+      ...u,
+      points: 0,
+      mainJumpers: [],
+      reserveJumper: null,
+      jumperPoints: {}
+    }));
+
+    setUsersDb(resetUsers);
+    if (currentUser) {
+      setCurrentUser(resetUsers.find(u => u.id === currentUser.id) || null);
+    }
+    setRecentContests([]);
+
+    for (const u of resetUsers) {
+      await fetch('/api/admin/update-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, points: 0, jumperPoints: {} })
+      }).catch(() => {});
+      await fetch('/api/user/update-roster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, mainJumpers: [], reserveJumper: null, jumperPoints: {} })
+      }).catch(() => {});
+    }
+
+    alert("Liga została pomyślnie zresetowana. Możecie rozpoczynać prawdziwy draft!");
   };
 
   if (!currentUser) {
@@ -414,7 +446,7 @@ export default function App() {
           onClick={() => setActiveTab('contests')}
           className={`py-3 px-4 text-sm font-medium border-b-2 flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'contests' ? 'border-blue-500 text-blue-400 bg-blue-500/5' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
         >
-          <FileText className="w-4 h-4" /> Wyniki Konkursów ({recentContests.length})
+          <FileText className="w-4 h-4" /> Klasyfikacja Fantasy ({recentContests.length})
         </button>
         {currentUser.role === 'admin' && (
           <button 
@@ -609,26 +641,41 @@ export default function App() {
         {activeTab === 'contests' && (
           <div className="space-y-6">
             <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-400" /> Historia Wyników Konkursów
+              <FileText className="w-5 h-5 text-blue-400" /> Klasyfikacja Fantasy – Wyniki Zawodników w Konkursach
             </h2>
             {recentContests.length === 0 ? (
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 text-center py-12 text-slate-400">
-                Brak zaimportowanych konkursów. Przejdź do Panelu Admina i zaimportuj plik PDF / tekst wyników FIS.
+                Brak zaimportowanych konkursów. Przejdź do Panelu Admina i zaimportuj tekst z wynikami FIS.
               </div>
             ) : (
-              recentContests.map((c, i) => (
-                <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4">
-                  <h3 className="font-bold text-blue-400">{c.name}</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                    {c.results.map((res, rIdx) => (
-                      <div key={rIdx} className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg flex justify-between text-xs">
-                        <span className="text-slate-300">{res.rank}. {res.name}</span>
-                        <span className="font-bold text-yellow-400">{res.points} pkt</span>
+              recentContests.map((c, i) => {
+                // Wybieramy tylko tych skoczków, którzy należą do składów drużyn w lidze
+                const teamJumpersSet = new Set<string>();
+                usersDb.forEach(u => {
+                  u.mainJumpers.forEach(j => teamJumpersSet.add(j));
+                  if (u.reserveJumper) teamJumpersSet.add(u.reserveJumper);
+                });
+
+                const fantasyResults = c.results.filter(res => teamJumpersSet.has(res.name));
+
+                return (
+                  <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4">
+                    <h3 className="font-bold text-blue-400">{c.name}</h3>
+                    {fantasyResults.length === 0 ? (
+                      <p className="text-xs text-slate-500 italic">Żaden skoczek z Twojej / innych drużyn nie zdobył punktów w tym konkursie.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                        {fantasyResults.map((res, rIdx) => (
+                          <div key={rIdx} className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg flex justify-between text-xs">
+                            <span className="text-slate-300">{res.name}</span>
+                            <span className="font-bold text-yellow-400">{res.rank}. miejsce ({res.points} pkt)</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
@@ -740,6 +787,21 @@ export default function App() {
                   {importStatus && <div className="text-[11px] text-green-400">{importStatus}</div>}
                 </div>
               </div>
+
+              {/* OPCJA RESETOWANIA DANYCH PRZED DRAFTEM */}
+              <div className="bg-red-950/20 p-4 border border-red-500/30 rounded-xl flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-semibold text-red-300">Resetowanie / Czyszczenie Ligi</h3>
+                  <p className="text-[11px] text-slate-400">Usuń punkty testowe i składy, aby przygotować czystą kartę przed właściwym draftem.</p>
+                </div>
+                <button 
+                  onClick={handleResetLeague}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-lg transition flex items-center gap-1.5"
+                >
+                  <RotateCcw className="w-4 h-4" /> Resetuj Dane
+                </button>
+              </div>
+
             </div>
           </div>
         )}
