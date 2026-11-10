@@ -32,48 +32,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'team' | 'settings' | 'contests' | 'admin'>('dashboard');
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
 
-  // Zmiana 'admin' na 'Sylwek'
   const [usersDb, setUsersDb] = useState<UserAccount[]>([
-    {
-      id: 'u-admin',
-      username: 'Sylwek',
-      role: 'admin',
-      teamName: 'Lotniki',
-      mainJumpers: ['Stefan Kraft', 'Andreas Wellinger', 'Aleksander Zniszczoł', 'Dawid Kubacki', 'Kamil Stoch'],
-      reserveJumper: 'Piotr Żyła',
-      points: 251,
-      jumperPoints: { 'Stefan Kraft': 100, 'Andreas Wellinger': 80, 'Aleksander Zniszczoł': 36, 'Dawid Kubacki': 20, 'Kamil Stoch': 15, 'Piotr Żyła': 12 }
-    },
-    {
-      id: 'u-user-1',
-      username: 'Klaudia',
-      role: 'user',
-      teamName: 'Słodziaki',
-      mainJumpers: ['Ryoyu Kobayashi', 'Jan Hoerl', 'Marius Lindvik', 'Peter Prevc', 'Johann Andre Forfang'],
-      reserveJumper: 'Manuel Fettner',
-      points: 221,
-      jumperPoints: { 'Ryoyu Kobayashi': 60, 'Jan Hoerl': 50, 'Marius Lindvik': 45, 'Peter Prevc': 40, 'Johann Andre Forfang': 26, 'Manuel Fettner': 18 }
-    },
-    {
-      id: 'u-user-2',
-      username: 'Artur',
-      role: 'user',
-      teamName: 'Śnieżne Pantery',
-      mainJumpers: ['Pius Paschke', 'Karl Geiger', 'Gregor Deschwanden', 'Halvor Egner Granerud', 'Paweł Wąsek'],
-      reserveJumper: 'Lovro Kos',
-      points: 112,
-      jumperPoints: { 'Pius Paschke': 29, 'Karl Geiger': 24, 'Gregor Deschwanden': 22, 'Halvor Egner Granerud': 14, 'Paweł Wąsek': 10, 'Lovro Kos': 8 }
-    },
-    {
-      id: 'u-user-3',
-      username: 'Filip',
-      role: 'user',
-      teamName: 'Skrzydlate Lwy',
-      mainJumpers: ['Domen Prevc', 'Anze Lanisek', 'Michael Hayboeck', 'Timi Zajc', 'Maciej Kot'],
-      reserveJumper: 'Kacper Tomasiak',
-      points: 99,
-      jumperPoints: { 'Domen Prevc': 35, 'Anze Lanisek': 30, 'Michael Hayboeck': 25, 'Timi Zajc': 15, 'Maciej Kot': 7, 'Kacper Tomasiak': 0 }
-    }
+    { id: 'u-admin', username: 'Sylwek', role: 'admin', teamName: 'Lotniki', mainJumpers: ['Stefan Kraft', 'Andreas Wellinger', 'Aleksander Zniszczoł', 'Dawid Kubacki', 'Kamil Stoch'], reserveJumper: 'Piotr Żyła', points: 0, jumperPoints: {} },
+    { id: 'u-user-1', username: 'Klaudia', role: 'user', teamName: 'Słodziaki', mainJumpers: ['Ryoyu Kobayashi', 'Jan Hoerl', 'Marius Lindvik', 'Peter Prevc', 'Johann Andre Forfang'], reserveJumper: 'Manuel Fettner', points: 0, jumperPoints: {} },
+    { id: 'u-user-2', username: 'Artur', role: 'user', teamName: 'Śnieżne Pantery', mainJumpers: ['Pius Paschke', 'Karl Geiger', 'Gregor Deschwanden', 'Halvor Egner Granerud', 'Paweł Wąsek'], reserveJumper: 'Lovro Kos', points: 0, jumperPoints: {} },
+    { id: 'u-user-3', username: 'Filip', role: 'user', teamName: 'Skrzydlate Lwy', mainJumpers: ['Domen Prevc', 'Anze Lanisek', 'Michael Hayboeck', 'Timi Zajc', 'Maciej Kot'], reserveJumper: 'Kacper Tomasiak', points: 0, jumperPoints: {} }
   ]);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -93,15 +56,31 @@ export default function App() {
       .then(res => res.json())
       .then(data => {
         if (data.users && data.users.length > 0) {
-          setUsersDb(prev => prev.map(u => {
-            const dbMatch = data.users.find((d: any) => d.id === u.id);
-            return dbMatch ? { 
-              ...u, 
-              teamName: dbMatch.team_name || u.teamName, 
-              username: dbMatch.username || u.username,
-              points: dbMatch.points !== undefined ? dbMatch.points : u.points 
-            } : u;
-          }));
+          const mapped = data.users.map((d: any) => {
+            let parsedMain = [];
+            try {
+              parsedMain = typeof d.main_jumpers === 'string' ? JSON.parse(d.main_jumpers) : (d.main_jumpers || []);
+            } catch (e) {
+              parsedMain = [];
+            }
+            return {
+              id: d.id,
+              username: d.username,
+              role: d.role,
+              teamName: d.team_name || 'Moja Drużyna',
+              points: d.points || 0,
+              mainJumpers: parsedMain,
+              reserveJumper: d.reserve_jumper || null,
+              jumperPoints: {}
+            };
+          });
+          setUsersDb(mapped);
+          
+          setCurrentUser(prev => {
+            if (!prev) return null;
+            const updatedFound = mapped.find((m: UserAccount) => m.id === prev.id);
+            return updatedFound || prev;
+          });
         }
       })
       .catch(() => console.log('Tryb offline'));
@@ -146,9 +125,6 @@ export default function App() {
     e.preventDefault();
     if (!newUsernameInput || !newPasswordInput) return alert("Wprowadź nowy login i hasło!");
 
-    const updated = usersDb.map(u => u.id === editUserTarget ? { ...u, username: newUsernameInput } : u);
-    setUsersDb(updated);
-
     try {
       const res = await fetch('/api/admin/update-credentials', {
         method: 'POST',
@@ -160,9 +136,10 @@ export default function App() {
         })
       });
       if (res.ok) {
-        alert(`Zaktualizowano dane logowania w bazie D1! Nowy login: ${newUsernameInput}`);
+        alert(`Zaktualizowano dane logowania! Nowy login: ${newUsernameInput}`);
         setNewUsernameInput('');
         setNewPasswordInput('');
+        window.location.reload();
       } else {
         alert("Błąd zapisu w bazie.");
       }
@@ -171,28 +148,83 @@ export default function App() {
     }
   };
 
+  const syncRosterToDb = async (updatedUser: UserAccount) => {
+    try {
+      await fetch('/api/user/update-roster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: updatedUser.id,
+          mainJumpers: updatedUser.mainJumpers,
+          reserveJumper: updatedUser.reserveJumper
+        })
+      });
+    } catch (err) {
+      console.log('Błąd zapisu składu');
+    }
+  };
+
+  const handleAddJumper = (name: string, isReserve: boolean) => {
+    if (!currentUser) return;
+    let updatedUser;
+    if (isReserve) {
+      if (currentUser.reserveJumper) return alert("Masz już rezerwowego!");
+      if (currentUser.mainJumpers.includes(name)) return alert("Skoczek w składzie!");
+      updatedUser = { ...currentUser, reserveJumper: name };
+    } else {
+      if (currentUser.mainJumpers.length >= 5) return alert("Maksymalnie 5 skoczków!");
+      if (currentUser.mainJumpers.includes(name)) return alert("Skoczek już w składzie!");
+      if (currentUser.reserveJumper === name) return alert("Skoczek jest rezerwowym!");
+      updatedUser = { ...currentUser, mainJumpers: [...currentUser.mainJumpers, name] };
+    }
+    setCurrentUser(updatedUser);
+    setUsersDb(usersDb.map(u => u.id === currentUser.id ? updatedUser : u));
+    syncRosterToDb(updatedUser);
+  };
+
+  const handleRemoveJumper = (name: string, isReserve: boolean) => {
+    if (!currentUser) return;
+    let updatedUser;
+    if (isReserve) {
+      updatedUser = { ...currentUser, reserveJumper: null };
+    } else {
+      updatedUser = { ...currentUser, mainJumpers: currentUser.mainJumpers.filter(j => j !== name) };
+    }
+    setCurrentUser(updatedUser);
+    setUsersDb(usersDb.map(u => u.id === currentUser.id ? updatedUser : u));
+    syncRosterToDb(updatedUser);
+  };
+
+  // ULEPSZONY PARSER WYNIKÓW Z PDF / TEKSTU
   const handleParseAndApplyResults = async () => {
     if (!pdfText.trim()) return alert("Wklej tekst wyników!");
 
     const fisPoints = [100, 80, 60, 50, 45, 40, 36, 32, 29, 26, 24, 22, 20, 18, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
-    let rankCounter = 1;
     const parsed: {name: string; rank: number; points: number}[] = [];
+    const lowerText = pdfText.toLowerCase();
 
+    let rankCounter = 1;
     INITIAL_JUMPERS.forEach(jumper => {
-      if (pdfText.toLowerCase().includes(jumper.toLowerCase()) && rankCounter <= 30) {
-        parsed.push({ name: jumper, rank: rankCounter, points: fisPoints[rankCounter - 1] || 0 });
-        rankCounter++;
+      // Sprawdzamy po nazwisku (ostatni człon imienia lub całe imię i nazwisko)
+      const parts = jumper.split(' ');
+      const lastName = parts[parts.length - 1].toLowerCase();
+      
+      if (lowerText.includes(jumper.toLowerCase()) || lowerText.includes(lastName)) {
+        if (rankCounter <= 30) {
+          parsed.push({ name: jumper, rank: rankCounter, points: fisPoints[rankCounter - 1] || 0 });
+          rankCounter++;
+        }
       }
     });
 
-    if (parsed.length === 0) return alert("Nie rozpoznano żadnego skoczka.");
+    if (parsed.length === 0) return alert("Nie rozpoznano żadnego skoczka. Upewnij się, że wkleiłeś oficjalne wyniki.");
 
     const updatedUsers = usersDb.map(user => {
       let totalMatchPoints = 0;
       const newJp = { ...user.jumperPoints };
 
       user.mainJumpers.forEach(jName => {
-        const match = parsed.find(p => p.name === jName);
+        const match = parsed.find(p => p.name.toLowerCase() === jName.toLowerCase());
         const pts = match ? match.points : 0;
         newJp[jName] = (newJp[jName] || 0) + pts;
         totalMatchPoints += pts;
@@ -217,7 +249,7 @@ export default function App() {
       }).catch(() => {});
     }
 
-    setImportStatus(`Przetworzono pomyślnie! Dopasowano ${parsed.length} skoczków.`);
+    setImportStatus(`Sukces! Dopasowano ${parsed.length} skoczków i przeliczono punkty.`);
     setPdfText('');
   };
 
@@ -238,40 +270,10 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, points: newPts })
       });
-      alert(`Zaktualizowano punkty w bazie D1 do wartości: ${newPts}`);
+      alert(`Zaktualizowano punkty w bazie do wartości: ${newPts}`);
     } catch (err) {
-      alert("Zaktualizowano lokalnie.");
+      alert("Błąd zapisu punktów.");
     }
-  };
-
-  const handleAddJumper = (name: string, isReserve: boolean) => {
-    if (!currentUser) return;
-    if (isReserve) {
-      if (currentUser.reserveJumper) return alert("Masz już rezerwowego!");
-      if (currentUser.mainJumpers.includes(name)) return alert("Skoczek w składzie!");
-      const updatedUser = { ...currentUser, reserveJumper: name };
-      setCurrentUser(updatedUser);
-      setUsersDb(usersDb.map(u => u.id === currentUser.id ? updatedUser : u));
-    } else {
-      if (currentUser.mainJumpers.length >= 5) return alert("Maksymalnie 5 skoczków!");
-      if (currentUser.mainJumpers.includes(name)) return alert("Skoczek już w składzie!");
-      if (currentUser.reserveJumper === name) return alert("Skoczek jest rezerwowym!");
-      const updatedUser = { ...currentUser, mainJumpers: [...currentUser.mainJumpers, name] };
-      setCurrentUser(updatedUser);
-      setUsersDb(usersDb.map(u => u.id === currentUser.id ? updatedUser : u));
-    }
-  };
-
-  const handleRemoveJumper = (name: string, isReserve: boolean) => {
-    if (!currentUser) return;
-    let updatedUser;
-    if (isReserve) {
-      updatedUser = { ...currentUser, reserveJumper: null };
-    } else {
-      updatedUser = { ...currentUser, mainJumpers: currentUser.mainJumpers.filter(j => j !== name) };
-    }
-    setCurrentUser(updatedUser);
-    setUsersDb(usersDb.map(u => u.id === currentUser.id ? updatedUser : u));
   };
 
   if (!currentUser) {
