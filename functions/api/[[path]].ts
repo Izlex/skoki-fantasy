@@ -22,7 +22,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     if (path === "/api/users" && method === "GET") {
-      const { results } = await db.prepare("SELECT id, username, role, team_name, points, main_jumpers, reserve_jumper FROM users").all();
+      const { results } = await db.prepare("SELECT id, username, role, team_name, points, main_jumpers, reserve_jumper, jumper_points FROM users").all();
       return new Response(JSON.stringify({ users: results }), { headers: jsonHeaders });
     }
 
@@ -34,23 +34,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (path === "/api/user/update-roster" && method === "POST") {
       const body: any = await context.request.json();
-      await db.prepare("UPDATE users SET main_jumpers = ?, reserve_jumper = ? WHERE id = ?")
-        .bind(JSON.stringify(body.mainJumpers), body.reserveJumper, body.userId)
+      await db.prepare("UPDATE users SET main_jumpers = ?, reserve_jumper = ?, jumper_points = ? WHERE id = ?")
+        .bind(JSON.stringify(body.mainJumpers), body.reserveJumper, JSON.stringify(body.jumperPoints || {}), body.userId)
         .run();
       return new Response(JSON.stringify({ success: true }), { headers: jsonHeaders });
     }
 
     if (path === "/api/admin/update-points" && method === "POST") {
       const body: any = await context.request.json();
-      await db.prepare("UPDATE users SET points = ? WHERE id = ?").bind(body.points, body.userId).run();
+      await db.prepare("UPDATE users SET points = ?, jumper_points = ? WHERE id = ?")
+        .bind(body.points, JSON.stringify(body.jumperPoints || {}), body.userId)
+        .run();
       return new Response(JSON.stringify({ success: true }), { headers: jsonHeaders });
     }
 
     if (path === "/api/admin/update-credentials" && method === "POST") {
       const body: any = await context.request.json();
-      if (!body.userId || !body.newUsername || !body.newPassword) {
-        return new Response(JSON.stringify({ error: 'Uzupełnij login i hasło' }), { status: 400, headers: jsonHeaders });
-      }
       await db.prepare("UPDATE users SET username = ?, password_hash = ? WHERE id = ?")
         .bind(body.newUsername, body.newPassword, body.userId)
         .run();
