@@ -277,4 +277,138 @@ export default function App() {
                 <input 
                   type="text" 
                   value={tempTeamName}
-                  onChange={e => set
+                  onChange={e => setTempTeamName(e.target.value)}
+                  required
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <button 
+                type="submit"
+                className="py-2.5 px-5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-xl transition shadow-lg shadow-blue-600/20"
+              >
+                Zapisz Nową Nazwę
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* WYBÓR DRUŻYNY */}
+        {activeTab === 'team' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1 space-y-4">
+              <div className="bg-slate-900/80 border border-blue-500/30 rounded-2xl p-5 shadow-xl space-y-4">
+                <h2 className="text-md font-bold text-blue-400 flex items-center gap-2">
+                  <Users className="w-5 h-5" /> {myTeam.teamName}
+                </h2>
+                
+                {myTeam.main.length === 0 ? (
+                  <p className="text-xs text-slate-500 italic">Brak wybranych skoczków.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {myTeam.main.map((name, i) => (
+                      <div key={i} className="flex items-center justify-between p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs">
+                        <span className="font-medium text-slate-200">{i+1}. {name}</span>
+                        <button onClick={() => removeJumper(name, false)} className="text-red-400 hover:text-red-300 p-1">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-slate-800">
+                  <h3 className="text-xs font-semibold text-yellow-400 mb-2">Rezerwowy (1):</h3>
+                  {myTeam.reserve ? (
+                    <div className="flex items-center justify-between p-2.5 bg-yellow-950/20 border border-yellow-500/30 rounded-xl text-xs">
+                      <span className="font-medium text-yellow-200">⭐ {myTeam.reserve}</span>
+                      <button onClick={() => removeJumper(myTeam.reserve!, true)} className="text-red-400 hover:text-red-300 p-1">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 italic">Brak rezerwowego.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 space-y-4">
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-md font-bold text-slate-200">Wybierz Skoczków ({INITIAL_JUMPERS.length} dostępnych)</h2>
+                  <div className="relative w-64">
+                    <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Szukaj skoczka..." 
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[450px] overflow-y-auto pr-2">
+                  {filteredJumpers.map((jumper, idx) => {
+                    const isSelectedMain = myTeam.main.includes(jumper);
+                    const isSelectedReserve = myTeam.reserve === jumper;
+
+                    return (
+                      <div key={idx} className="p-3 bg-slate-950 border border-slate-800/80 rounded-xl flex items-center justify-between">
+                        <span className="text-xs font-medium text-slate-200">{jumper}</span>
+                        <div className="flex gap-1">
+                          <button 
+                            disabled={isSelectedMain || isSelectedReserve}
+                            onClick={() => addJumper(jumper, false)}
+                            className="px-2 py-1 bg-blue-900/40 hover:bg-blue-600 text-blue-200 text-[10px] rounded-lg border border-blue-500/30 disabled:opacity-30"
+                          >
+                            + Skład
+                          </button>
+                          <button 
+                            disabled={isSelectedMain || isSelectedReserve}
+                            onClick={() => addJumper(jumper, true)}
+                            className="px-2 py-1 bg-yellow-900/40 hover:bg-yellow-600 text-yellow-200 text-[10px] rounded-lg border border-yellow-500/30 disabled:opacity-30"
+                          >
+                            + Rezerwa
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'contests' && (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 text-center py-12 text-slate-400">
+            Brak rozegranych konkursów.
+          </div>
+        )}
+
+        {activeTab === 'admin' && currentUser.role === 'admin' && (
+          <div className="bg-slate-900/60 border border-yellow-500/30 rounded-2xl p-6 shadow-xl space-y-4">
+            <h2 className="text-lg font-bold text-yellow-400 flex items-center gap-2">
+              <Shield className="w-5 h-5" /> Import Wyników Konkursu (PDF / Tekst)
+            </h2>
+            <textarea 
+              rows={6}
+              value={pdfText}
+              onChange={e => setPdfText(e.target.value)}
+              placeholder="Wklej tekst z pliku PDF z wynikami FIS..."
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-yellow-500"
+            />
+            <button 
+              onClick={() => setImportStatus("Wyniki zostały przeanalizowane!")}
+              className="px-4 py-2.5 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-2"
+            >
+              <CheckCircle className="w-4 h-4" /> Przetwórz i Przelicz Wyniki
+            </button>
+            {importStatus && <div className="p-3 bg-green-950/40 border border-green-500/30 rounded-xl text-green-300 text-xs">{importStatus}</div>}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
