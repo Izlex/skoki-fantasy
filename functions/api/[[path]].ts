@@ -21,7 +21,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   try {
-    // 1. Pobranie użytkowników, ich nazw drużyn oraz punktów
+    // 1. Pobranie wszystkich użytkowników z bazy
     if (path === "/api/users" && method === "GET") {
       const { results } = await db.prepare("SELECT id, username, role, team_name, points FROM users").all();
       return new Response(JSON.stringify({ users: results }), { headers: jsonHeaders });
@@ -34,7 +34,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ success: true }), { headers: jsonHeaders });
     }
 
-    // 3. Admin: Korekta punktów lub zapis punktacji
+    // 3. Admin: Aktualizacja punktów w bazie D1
     if (path === "/api/admin/update-points" && method === "POST") {
       const body: any = await context.request.json();
       if (!body.userId || typeof body.points !== 'number') {
@@ -44,9 +44,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ success: true }), { headers: jsonHeaders });
     }
 
-    // 4. Admin: Zmiana loginu/hasła
+    // 4. Admin: Aktualizacja loginu i hasła w bazie D1
     if (path === "/api/admin/update-credentials" && method === "POST") {
       const body: any = await context.request.json();
+      if (!body.userId || !body.newUsername || !body.newPassword) {
+        return new Response(JSON.stringify({ error: 'Uzupełnij login i hasło' }), { status: 400, headers: jsonHeaders });
+      }
       await db.prepare("UPDATE users SET username = ?, password_hash = ? WHERE id = ?")
         .bind(body.newUsername, body.newPassword, body.userId)
         .run();
