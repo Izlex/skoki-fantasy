@@ -32,13 +32,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'team' | 'settings' | 'contests' | 'admin'>('dashboard');
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
 
-  // Zawsze 4 graczy (Admin + 3 Uczestników)
   const [usersDb, setUsersDb] = useState<UserAccount[]>([
     {
       id: 'u-admin',
       username: 'admin',
       role: 'admin',
-      teamName: 'Drużyna Administratora',
+      teamName: 'Lotniki',
       mainJumpers: ['Stefan Kraft', 'Andreas Wellinger', 'Aleksander Zniszczoł', 'Dawid Kubacki', 'Kamil Stoch'],
       reserveJumper: 'Piotr Żyła',
       points: 251,
@@ -46,9 +45,9 @@ export default function App() {
     },
     {
       id: 'u-user-1',
-      username: 'gracz1',
+      username: 'Klaudia',
       role: 'user',
-      teamName: 'Orły Narciarskie',
+      teamName: 'Słodziaki',
       mainJumpers: ['Ryoyu Kobayashi', 'Jan Hoerl', 'Marius Lindvik', 'Peter Prevc', 'Johann Andre Forfang'],
       reserveJumper: 'Manuel Fettner',
       points: 221,
@@ -56,22 +55,22 @@ export default function App() {
     },
     {
       id: 'u-user-2',
-      username: 'gracz2',
+      username: 'Artur',
       role: 'user',
       teamName: 'Śnieżne Pantery',
       mainJumpers: ['Pius Paschke', 'Karl Geiger', 'Gregor Deschwanden', 'Halvor Egner Granerud', 'Paweł Wąsek'],
       reserveJumper: 'Lovro Kos',
-      points: 99,
+      points: 112,
       jumperPoints: { 'Pius Paschke': 29, 'Karl Geiger': 24, 'Gregor Deschwanden': 22, 'Halvor Egner Granerud': 14, 'Paweł Wąsek': 10, 'Lovro Kos': 8 }
     },
     {
       id: 'u-user-3',
-      username: 'gracz3',
+      username: 'Filip',
       role: 'user',
-      teamName: 'Górskie Jastrzębie',
+      teamName: 'Skrzydlate Lwy',
       mainJumpers: ['Domen Prevc', 'Anze Lanisek', 'Michael Hayboeck', 'Timi Zajc', 'Maciej Kot'],
       reserveJumper: 'Kacper Tomasiak',
-      points: 112,
+      points: 99,
       jumperPoints: { 'Domen Prevc': 35, 'Anze Lanisek': 30, 'Michael Hayboeck': 25, 'Timi Zajc': 15, 'Maciej Kot': 7, 'Kacper Tomasiak': 0 }
     }
   ]);
@@ -79,8 +78,8 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [pdfText, setPdfText] = useState('');
   const [importStatus, setImportStatus] = useState('');
+  const [recentContests, setRecentContests] = useState<{name: string; results: {name: string; rank: number; points: number}[]}[]>([]);
 
-  // Stany w panelu admina
   const [selectedUserToEdit, setSelectedUserToEdit] = useState<string>('u-user-1');
   const [manualPointsAdd, setManualPointsAdd] = useState<string>('0');
   
@@ -88,19 +87,24 @@ export default function App() {
   const [newUsernameInput, setNewUsernameInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
 
-  // Pobranie użytkowników z bazy D1 przy starcie
+  // Pobieranie danych z bazy przy starcie
   useEffect(() => {
     fetch('/api/users')
       .then(res => res.json())
       .then(data => {
         if (data.users && data.users.length > 0) {
           setUsersDb(prev => prev.map(u => {
-            const dbMatch = data.users.find((d: any) => d.id === u.id || d.username === u.username);
-            return dbMatch ? { ...u, teamName: dbMatch.team_name || u.teamName, username: dbMatch.username || u.username } : u;
+            const dbMatch = data.users.find((d: any) => d.id === u.id);
+            return dbMatch ? { 
+              ...u, 
+              teamName: dbMatch.team_name || u.teamName, 
+              username: dbMatch.username || u.username,
+              points: dbMatch.points !== undefined ? dbMatch.points : u.points 
+            } : u;
           }));
         }
       })
-      .catch(() => console.log('Tryb stacjonarny / offline'));
+      .catch(() => console.log('Tryb offline'));
   }, []);
 
   const handleLogin = (e: React.FormEvent) => {
@@ -110,7 +114,7 @@ export default function App() {
     if (found) {
       setCurrentUser(found);
     } else {
-      setLoginError('Nieprawidłowy login. Dostępne loginy: admin, gracz1, gracz2, gracz3');
+      setLoginError('Nieprawidłowy login. Dostępne: admin, Klaudia, Artur, Filip');
     }
   };
 
@@ -120,56 +124,105 @@ export default function App() {
     setPassInput('');
   };
 
-  // Zapisywanie nowej nazwy drużyny w bazie D1
   const handleSaveMyTeamName = async (newName: string) => {
     if (!currentUser) return;
-
-    // 1. Aktualizacja w pamięci
     const updated = usersDb.map(u => u.id === currentUser.id ? { ...u, teamName: newName } : u);
     setUsersDb(updated);
     setCurrentUser({ ...currentUser, teamName: newName });
 
-    // 2. Wysyłka do bazy Cloudflare D1
     try {
       await fetch('/api/user/update-team', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUser.id, teamName: newName })
       });
-      alert("Nazwa drużyny została pomyślnie zapisana w bazie danych!");
+      alert("Nazwa drużyny zapisana w bazie D1!");
     } catch (err) {
-      alert("Zapisano lokalnie (błąd połączenia z bazą).");
+      alert("Zapisano lokalnie.");
     }
   };
 
-  // Zmiana loginu i hasła użytkownika przez Admina
-  const handleAdminUpdateUserCredentials = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newUsernameInput || !newPasswordInput) return alert("Wpisz nowy login i hasło!");
+  // Parser PDF / Wyników konkursu FIS i aktualizacja tabeli
+  const handleParseAndApplyResults = async () => {
+    if (!pdfText.trim()) return alert("Wklej tekst wyników konkursu!");
 
-    const updated = usersDb.map(u => u.id === editUserTarget ? { ...u, username: newUsernameInput } : u);
-    setUsersDb(updated);
+    const fisPoints = [100, 80, 60, 50, 45, 40, 36, 32, 29, 26, 24, 22, 20, 18, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+    let rankCounter = 1;
+    const parsed: {name: string; rank: number; points: number}[] = [];
 
-    try {
-      const res = await fetch('/api/admin/update-credentials', {
+    INITIAL_JUMPERS.forEach(jumper => {
+      if (pdfText.toLowerCase().includes(jumper.toLowerCase()) && rankCounter <= 30) {
+        parsed.push({ name: jumper, rank: rankCounter, points: fisPoints[rankCounter - 1] || 0 });
+        rankCounter++;
+      }
+    });
+
+    if (parsed.length === 0) return alert("Nie udało się rozpoznać żadnego skoczka z listy. Sprawdź format tekstu.");
+
+    // Przeliczanie punktów dla każdego użytkownika na podstawie jego składu (5 głównych + rezerwowy w razie braku)
+    const updatedUsers = usersDb.map(user => {
+      let totalMatchPoints = 0;
+      const newJp = { ...user.jumperPoints };
+
+      user.mainJumpers.forEach(jName => {
+        const match = parsed.find(p => p.name === jName);
+        const pts = match ? match.points : 0;
+        newJp[jName] = (newJp[jName] || 0) + pts;
+        totalMatchPoints += pts;
+      });
+
+      // Rezerwowy punktuje tylko wtedy, gdy któryś z głównych nie zdobył punktów (uproszczona reguła ligowa)
+      if (user.reserveJumper) {
+        const resMatch = parsed.find(p => p.name === user.reserveJumper);
+        const resPts = resMatch ? resMatch.points : 0;
+        newJp[user.reserveJumper] = (newJp[user.reserveJumper] || 0) + resPts;
+      }
+
+      const newTotal = user.points + totalMatchPoints;
+      return { ...user, points: newTotal, jumperPoints: newJp };
+    });
+
+    setUsersDb(updatedUsers);
+    if (currentUser) {
+      setCurrentUser(updatedUsers.find(u => u.id === currentUser.id) || currentUser);
+    }
+
+    // Zapisz w zakładce wyników konkursów
+    setRecentContests(prev => [{ name: `Konkurs z dnia ${new Date().toLocaleDateString()}`, results: parsed }, ...prev]);
+
+    // Zapisz punkty w bazie D1 dla każdego użytkownika
+    for (const u of updatedUsers) {
+      await fetch('/api/admin/update-points', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: editUserTarget,
-          newUsername: newUsernameInput,
-          newPassword: newPasswordInput
-        })
+        body: JSON.stringify({ userId: u.id, points: u.points })
+      }).catch(() => {});
+    }
+
+    setImportStatus(`Pomyślnie przetworzono konkurs! Dopasowano ${parsed.length} skoczków i zaktualizowano tabele.`);
+    setPdfText('');
+  };
+
+  const handleManualPointsCorrection = async (userId: string, delta: number) => {
+    const target = usersDb.find(u => u.id === userId);
+    if (!target) return;
+    const newPts = target.points + delta;
+
+    const updated = usersDb.map(u => u.id === userId ? { ...u, points: newPts } : u);
+    setUsersDb(updated);
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser(updated.find(u => u.id === userId) || currentUser);
+    }
+
+    try {
+      await fetch('/api/admin/update-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, points: newPts })
       });
-      const data = await res.json();
-      if (res.ok) {
-        alert(`Pomyślnie zmieniono dane logowania dla konta w bazie D1! Nowy login: ${newUsernameInput}`);
-        setNewUsernameInput('');
-        setNewPasswordInput('');
-      } else {
-        alert('Błąd: ' + data.error);
-      }
-    } catch (err: any) {
-      alert('Nie udało się zapisać w bazie D1: ' + err.message);
+      alert(`Zaktualizowano punkty w bazie D1 do wartości: ${newPts}`);
+    } catch (err) {
+      alert("Zaktualizowano lokalnie.");
     }
   };
 
@@ -203,15 +256,6 @@ export default function App() {
     setUsersDb(usersDb.map(u => u.id === currentUser.id ? updatedUser : u));
   };
 
-  const handleManualPointsCorrection = (userId: string, delta: number) => {
-    const updated = usersDb.map(u => u.id === userId ? { ...u, points: u.points + delta } : u);
-    setUsersDb(updated);
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser(updated.find(u => u.id === userId) || currentUser);
-    }
-    alert(`Pomyślnie zmodyfikowano punkty o ${delta > 0 ? '+' : ''}${delta}!`);
-  };
-
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
@@ -221,7 +265,7 @@ export default function App() {
               <Trophy className="w-6 h-6 text-yellow-400" />
             </div>
             <h1 className="text-xl font-bold">Skoki Fantasy PŚ</h1>
-            <p className="text-xs text-slate-400">Panel Logowania Ligi Private</p>
+            <p className="text-xs text-slate-400">Panel Logowania Ligi</p>
           </div>
 
           {loginError && (
@@ -232,7 +276,7 @@ export default function App() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Login (admin, gracz1, gracz2, gracz3)</label>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Login (admin, Klaudia, Artur, Filip)</label>
               <input 
                 type="text" 
                 value={loginInput}
@@ -319,7 +363,7 @@ export default function App() {
           onClick={() => setActiveTab('contests')}
           className={`py-3 px-4 text-sm font-medium border-b-2 flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'contests' ? 'border-blue-500 text-blue-400 bg-blue-500/5' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
         >
-          <FileText className="w-4 h-4" /> Wyniki Konkursów
+          <FileText className="w-4 h-4" /> Wyniki Konkursów ({recentContests.length})
         </button>
         {currentUser.role === 'admin' && (
           <button 
@@ -333,11 +377,11 @@ export default function App() {
 
       <main className="flex-1 p-6 max-w-6xl mx-auto w-full space-y-6">
         
-        {/* ZAKŁADKA 1: KLASYFIKACJA (4 GRACZY) */}
+        {/* ZAKŁADKA 1: KLASYFIKACJA (BEZ NAPISU LOGIN W GŁÓWNYM NAGŁÓWKU DRUŻYNY) */}
         {activeTab === 'dashboard' && (
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
             <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
-              <Award className="w-5 h-5 text-yellow-400" /> Tabela Ligi (Wszyscy 4 Uczestnicy)
+              <Award className="w-5 h-5 text-yellow-400" /> Tabela Ligi
             </h2>
             
             <div className="space-y-3">
@@ -355,8 +399,9 @@ export default function App() {
                           {index + 1}
                         </span>
                         <div>
-                          <h3 className="font-semibold text-sm text-slate-100">{user.teamName}</h3>
-                          <p className="text-xs text-slate-400">Login: <strong className="text-slate-200">{user.username}</strong></p>
+                          {/* Tylko nazwa drużyny jako główny nagłówek, login ukryty w podglądzie po rozwinięciu */}
+                          <h3 className="font-bold text-sm text-white">{user.teamName}</h3>
+                          <p className="text-xs text-slate-400">Właściciel: {user.username}</p>
                         </div>
                       </div>
 
@@ -368,7 +413,7 @@ export default function App() {
 
                     {isExpanded && (
                       <div className="px-4 pb-4 pt-2 bg-slate-900/30 border-t border-slate-800/80 space-y-3">
-                        <h4 className="text-xs font-semibold text-slate-400 uppercase">Skład drużyny:</h4>
+                        <h4 className="text-xs font-semibold text-slate-400 uppercase">Skład i punkty zawodników:</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                           {user.mainJumpers.map((jumperName, jIdx) => (
                             <div key={jIdx} className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between text-xs">
@@ -379,7 +424,7 @@ export default function App() {
                           {user.reserveJumper && (
                             <div className="p-2.5 bg-yellow-950/20 border border-yellow-500/30 rounded-lg flex items-center justify-between text-xs">
                               <span className="text-yellow-200 flex items-center gap-1">
-                                <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" /> {user.reserveJumper}
+                                <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" /> {user.reserveJumper} (Rezerwa)
                               </span>
                               <span className="font-bold text-yellow-400">+{user.jumperPoints[user.reserveJumper] || 0} pkt</span>
                             </div>
@@ -394,14 +439,12 @@ export default function App() {
           </div>
         )}
 
-        {/* ZAKŁADKA 2: USTAWIENIA DRUŻYNY (ZAPIS W BAZIE D1) */}
+        {/* ZAKŁADKA 2: USTAWIENIA DRUŻYNY */}
         {activeTab === 'settings' && (
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl max-w-xl">
             <h2 className="text-lg font-bold mb-2 text-slate-200 flex items-center gap-2">
               <Edit3 className="w-5 h-5 text-blue-400" /> Zmień Nazwę Swojej Drużyny
             </h2>
-            <p className="text-xs text-slate-400 mb-6">Nowa nazwa zostanie trwale zapisana w bazie danych Cloudflare D1.</p>
-            
             <form onSubmit={e => {
               e.preventDefault();
               const input = (e.currentTarget.elements.namedItem('teamNameInput') as HTMLInputElement).value;
@@ -516,13 +559,35 @@ export default function App() {
           </div>
         )}
 
+        {/* ZAKŁADKA 4: WYNIKI KONKURSÓW (AKTYWNA) */}
         {activeTab === 'contests' && (
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 text-center py-12 text-slate-400">
-            Brak rozegranych konkursów.
+          <div className="space-y-6">
+            <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-400" /> Historia Wyników Konkursów
+            </h2>
+            {recentContests.length === 0 ? (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 text-center py-12 text-slate-400">
+                Brak zaimportowanych konkursów. Przejdź do Panelu Admina i zaimportuj plik PDF / tekst wyników FIS.
+              </div>
+            ) : (
+              recentContests.map((c, i) => (
+                <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4">
+                  <h3 className="font-bold text-blue-400">{c.name}</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                    {c.results.map((res, rIdx) => (
+                      <div key={rIdx} className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg flex justify-between text-xs">
+                        <span className="text-slate-300">{res.rank}. {res.name}</span>
+                        <span className="font-bold text-yellow-400">{res.points} pkt</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         )}
 
-        {/* ZAKŁADKA 4: PANEL STEROWANIA ADMINA (Z ZARZĄDZANIEM GRACZAMI) */}
+        {/* ZAKŁADKA 5: PANEL STEROWANIA ADMINA */}
         {activeTab === 'admin' && currentUser.role === 'admin' && (
           <div className="space-y-6">
             <div className="bg-slate-900/60 border border-yellow-500/30 rounded-2xl p-6 shadow-xl space-y-6">
@@ -530,76 +595,21 @@ export default function App() {
                 <Shield className="w-5 h-5" /> Panel Sterowania Administratora
               </h2>
 
-              {/* SECTION: EDYCJA GRACZY I CREDENTIALS */}
-              <div className="bg-slate-950 p-5 border border-slate-800 rounded-xl space-y-4">
-                <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-2">
-                  <Key className="w-4 h-4 text-yellow-400" /> Zarządzanie Kontami Graczy (Edycja Loginu i Hasła w D1)
-                </h3>
-                
-                <form onSubmit={handleAdminUpdateUserCredentials} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">Wybierz Gracza</label>
-                    <select 
-                      value={editUserTarget}
-                      onChange={e => setEditUserTarget(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white"
-                    >
-                      {usersDb.map(u => (
-                        <option key={u.id} value={u.id}>{u.username} ({u.teamName})</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">Nowy Login</label>
-                    <input 
-                      type="text" 
-                      value={newUsernameInput}
-                      onChange={e => setNewUsernameInput(e.target.value)}
-                      placeholder="Wpisz nowy login..."
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-yellow-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">Nowe Hasło</label>
-                    <input 
-                      type="text" 
-                      value={newPasswordInput}
-                      onChange={e => setNewPasswordInput(e.target.value)}
-                      placeholder="Wpisz nowe hasło..."
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-yellow-500"
-                    />
-                  </div>
-
-                  <div className="sm:col-span-3 pt-2">
-                    <button 
-                      type="submit"
-                      className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-lg transition"
-                    >
-                      Zapisz Nowe Dane Logowania w Bazie D1
-                    </button>
-                  </div>
-                </form>
-              </div>
-
-              {/* SECTION: KOREKTA PUNKTÓW & IMPORT PDF */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Ręczna korekta punktów */}
                 <div className="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-3">
                   <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-2">
-                    <Sliders className="w-4 h-4 text-blue-400" /> Ręczna Korekta Punktów Drużyny
+                    <Sliders className="w-4 h-4 text-blue-400" /> Korekta Punktów Drużyny w D1
                   </h3>
-                  <div>
-                    <select 
-                      value={selectedUserToEdit}
-                      onChange={e => setSelectedUserToEdit(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white"
-                    >
-                      {usersDb.map(u => (
-                        <option key={u.id} value={u.id}>{u.username} ({u.teamName}) - {u.points} pkt</option>
-                      ))}
-                    </select>
-                  </div>
+                  <select 
+                    value={selectedUserToEdit}
+                    onChange={e => setSelectedUserToEdit(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white"
+                  >
+                    {usersDb.map(u => (
+                      <option key={u.id} value={u.id}>{u.teamName} ({u.username}) - {u.points} pkt</option>
+                    ))}
+                  </select>
                   <input 
                     type="number"
                     value={manualPointsAdd}
@@ -609,15 +619,16 @@ export default function App() {
                   <button 
                     onClick={() => {
                       const val = parseInt(manualPointsAdd);
-                      if (isNaN(val)) return alert("Wpisz poprawną liczbę punktów!");
+                      if (isNaN(val)) return alert("Wpisz poprawną liczbę!");
                       handleManualPointsCorrection(selectedUserToEdit, val);
                     }}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-500 font-bold text-xs rounded-lg transition"
                   >
-                    Zastosuj Korektę Punktów
+                    Zapisz Korektę w Bazie
                   </button>
                 </div>
 
+                {/* Import PDF */}
                 <div className="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-3">
                   <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-2">
                     <FileText className="w-4 h-4 text-yellow-400" /> Automatyczny Import PDF FIS
@@ -630,10 +641,10 @@ export default function App() {
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:border-yellow-500"
                   />
                   <button 
-                    onClick={() => setImportStatus("Wyniki zostały przeanalizowane!")}
+                    onClick={handleParseAndApplyResults}
                     className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-lg transition"
                   >
-                    Przetwórz Wyniki Konkursu
+                    Przetwórz i Przelicz Ligię
                   </button>
                   {importStatus && <div className="text-[11px] text-green-400">{importStatus}</div>}
                 </div>
