@@ -200,34 +200,40 @@ export default function App() {
     syncRosterToDb(updatedUser);
   };
 
-  // INTELIGENTNY PARSER WYNIKÓW FIS (DOPASOWUJE PO MIEJSCU I NAZWISKU)
+  // ROBUSTY PARSER WYNIKÓW FIS (ODCZYTUJE MIEJSCA I DOPASOWUJE PUNKTACJĘ PŚ)
   const handleParseAndApplyResults = async () => {
     if (!pdfText.trim()) return alert("Wklej tekst wyników!");
 
     const fisPoints = [100, 80, 60, 50, 45, 40, 36, 32, 29, 26, 24, 22, 20, 18, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
     const parsed: {name: string; rank: number; points: number}[] = [];
     
-    // Dzielimy wklejony tekst na linie
     const lines = pdfText.split('\n');
 
+    // Szukamy po kolei każdego skoczka z naszej listy w całym tekście
     INITIAL_JUMPERS.forEach(jumper => {
       const parts = jumper.split(' ');
-      const lastName = parts[parts.length - 1].toLowerCase(); // np. "stoch" lub "kubacki"
-      const firstName = parts[0].toLowerCase();
+      const lastName = parts[parts.length - 1].toLowerCase(); // np. "stoch"
+      const firstName = parts[0].toLowerCase(); // np. "kamil"
 
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].toLowerCase();
-        // Szukamy linijki zawierającej nazwisko skoczka
-        if (line.includes(lastName) || (line.includes(firstName) && line.includes(lastName))) {
-          // Próbujemy wyczytać pozycję (rank) z tej samej linijki lub linii sąsiednich
-          for (let r = 1; r <= 30; r++) {
-            // Sprawdzamy czy linijka zaczyna się od numeru rankingu lub zawiera np. "1." lub "31."
-            if (line.trim().startsWith(`${r}.`) || line.includes(`${r}.`) || (i > 0 && lines[i-1].includes(`${r}.`))) {
-              // Upewnij się, że nie dodaliśmy go już wcześniej
-              if (!parsed.some(p => p.name === jumper)) {
-                parsed.push({ name: jumper, rank: r, points: fisPoints[r - 1] || 0 });
+        const currentLine = lines[i].toLowerCase();
+        
+        if (currentLine.includes(lastName) || (currentLine.includes(firstName) && currentLine.includes(lastName))) {
+          // Szukamy numeru rankingu w tej samej linii lub do 2 linijek wyżej/niżej
+          for (let offset = -2; offset <= 2; offset++) {
+            const checkIndex = i + offset;
+            if (checkIndex >= 0 && checkIndex < lines.length) {
+              const targetLine = lines[checkIndex].trim();
+              // Sprawdzamy czy linijka zaczyna się od numeru (np "1.", "2.", "30.")
+              const match = targetLine.match(/^([1-9][0-9]?)\./);
+              if (match) {
+                const rank = parseInt(match[1], 10);
+                if (rank >= 1 && rank <= 50 && !parsed.some(p => p.name === jumper)) {
+                  const pts = (rank <= 30) ? (fisPoints[rank - 1] || 0) : 0;
+                  parsed.push({ name: jumper, rank: rank, points: pts });
+                  break;
+                }
               }
-              break;
             }
           }
         }
@@ -235,15 +241,17 @@ export default function App() {
     });
 
     if (parsed.length === 0) {
-      return alert("Nie udało się automatycznie dopasować skoczków. Upewnij się, że wklejasz oficjalne wyniki w formacie tekstowym z tabeli.");
+      return alert("Nie rozpoznano żadnego skoczka. Upewnij się, że wklejasz tekst zawierający oficjalne wyniki.");
     }
 
-    // Przeliczamy i sumujemy punkty dla każdego użytkownika
+    // Sortujemy wyniki od 1 miejsca do najdalszego
+    parsed.sort((a, b) => a.rank - b.rank);
+
+    // Przeliczamy i sumujemy punkty dla każdego użytkownika na bieżąco
     const updatedUsers = usersDb.map(user => {
       let totalMatchPoints = 0;
       const newJp = { ...user.jumperPoints };
 
-      // Sumujemy punkty dla skoczków z głównego składu
       user.mainJumpers.forEach(jName => {
         const match = parsed.find(p => p.name.toLowerCase() === jName.toLowerCase());
         const pts = match ? match.points : 0;
@@ -264,7 +272,6 @@ export default function App() {
 
     setRecentContests(prev => [{ name: `Konkurs z dnia ${new Date().toLocaleDateString()}`, results: parsed }, ...prev]);
 
-    // Zapisujemy zaktualizowane punkty w bazie D1 dla każdego użytkownika
     for (const u of updatedUsers) {
       await fetch('/api/admin/update-points', {
         method: 'POST',
@@ -273,7 +280,7 @@ export default function App() {
       }).catch(() => {});
     }
 
-    setImportStatus(`Sukces! Dopasowano ${parsed.length} skoczków i zaktualizowano punkty na bieżąco.`);
+    setImportStatus(`Sukces! Zmapowano ${parsed.length} skoczków poprawnie.`);
     setPdfText('');
   };
 
@@ -714,29 +721,4 @@ export default function App() {
                 </div>
 
                 <div className="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-3">
-                  <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-yellow-400" /> Automatyczny Import PDF FIS
-                  </h3>
-                  <textarea 
-                    rows={3}
-                    value={pdfText}
-                    onChange={e => setPdfText(e.target.value)}
-                    placeholder="Wklej tekst z pliku PDF z wynikami FIS..."
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:border-yellow-500"
-                  />
-                  <button 
-                    onClick={handleParseAndApplyResults}
-                    className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-lg transition"
-                  >
-                    Przetwórz i Przelicz Ligię
-                  </button>
-                  {importStatus && <div className="text-[11px] text-green-400">{importStatus}</div>}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
-  );
-}
+                  <h3 className="text-xs font-semibold text-slate-200 flex
