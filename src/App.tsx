@@ -42,7 +42,6 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [pdfText, setPdfText] = useState('');
   const [importStatus, setImportStatus] = useState('');
-  const [latestStandings, setLatestStandings] = useState<{name: string; totalPoints: number}[]>([]);
 
   const [selectedUserToEdit, setSelectedUserToEdit] = useState<string>('u-user-1');
   const [manualPointsAdd, setManualPointsAdd] = useState<string>('0');
@@ -200,33 +199,37 @@ export default function App() {
     syncRosterToDb(updatedUser);
   };
 
-  // PARSER RAPORTU KLASYFIKACJI GENERALNEJ PŚ (CZYTA CAŁKOWITE PUNKTI Z RAPORTU)
+  // Niezawodny Parser FIS Standings - czyta precyzyjnie Nazwisko i kolumnę TOTAL
   const handleParseAndApplyStandings = async () => {
     if (!pdfText.trim()) return alert("Wklej tekst klasyfikacji generalnej!");
 
     const lines = pdfText.split('\n');
     const standingsMap = new Map<string, number>();
 
-    // Przeszukujemy tekst pod kątem skoczków i ich całkowitych punktów z raportu FIS
     INITIAL_JUMPERS.forEach(jumper => {
       const parts = jumper.split(' ');
-      const lastName = parts[parts.length - 1].toLowerCase(); // np. "lanisek"
-      const firstName = parts[0].toLowerCase(); // np. "anze"
+      const lastName = parts[parts.length - 1].toLowerCase(); 
+      const firstName = parts[0].toLowerCase();
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].toLowerCase();
+        
+        // Dopasowanie nazwiska
         if (line.includes(lastName) || (line.includes(firstName) && line.includes(lastName))) {
-          // W raportach generalnych FIS punktacja TOTAL znajduje się w tej samej linii lub tuż obok.
-          // Szukamy liczby całkowitej (np. 406, 370) w otoczeniu 2 linii.
+          // Szukamy najbliższej liczby w linii z nazwiskiem oraz sąsiednich
           for (let offset = -1; offset <= 2; offset++) {
             const checkIdx = i + offset;
             if (checkIdx >= 0 && checkIdx < lines.length) {
-              const numbers = lines[checkIdx].match(/\b([1-9][0-9]{0,3})\b/g);
-              if (numbers && numbers.length > 0) {
-                // Zazwyczaj pierwsza lub druga napotkana większa liczba to całkowite punkty TOTAL
-                const pts = parseInt(numbers[0], 10);
-                if (pts > 0 && pts < 3000) {
-                  standingsMap.set(jumper, pts);
+              const targetStr = lines[checkIdx];
+              // Wyciągamy pierwsze większe liczby (punkty TOTAL w generalce)
+              const matches = targetStr.match(/\b([0-9]{1,4})\b/g);
+              if (matches) {
+                // Filtrujemy numery miejsc (np 1, 2) oraz błędy - szukamy właściwych punktów
+                const candidates = matches.map(Number).filter(n => n >= 0 && n <= 3500);
+                if (candidates.length > 0) {
+                  // Wybieramy największą pasującą wartość z tej linii (punkty TOTAL w PŚ)
+                  const totalPts = Math.max(...candidates);
+                  standingsMap.set(jumper, totalPts);
                   break;
                 }
               }
@@ -236,31 +239,24 @@ export default function App() {
       }
     });
 
-    const parsedStandings = Array.from(standingsMap.entries()).map(([name, totalPoints]) => ({ name, totalPoints }));
-    if (parsedStandings.length === 0) {
-      return alert("Nie znaleziono punktów w wklejonym tekście. Upewnij się, że wklejasz raport klasyfikacji generalnej PŚ.");
+    if (standingsMap.size === 0) {
+      return alert("Nie rozpoznano punktów. Upewnij się, że wklejasz tekst ze skopiowanej tabeli World Cup Standings.");
     }
 
-    setLatestStandings(parsedStandings);
-
-    // Aktualizujemy punkty dla każdego użytkownika na podstawie składu i pobranych punktów generalnych skoczka
+    // Aktualizujemy punkty dla każdego użytkownika
     const updatedUsers = usersDb.map(user => {
       let teamTotalPoints = 0;
-      const newJp: Record<string, number> = {};
+      const newJp: Record<string, number> = { ...user.jumperPoints };
 
       user.mainJumpers.forEach(jName => {
-        const found = parsedStandings.find(p => p.name.toLowerCase() === jName.toLowerCase());
-        const pts = found ? found.totalPoints : (user.jumperPoints[jName] || 0);
-        newJp[jName] = pts;
-        teamTotalPoints += pts;
+        if (standingsMap.has(jName)) {
+          newJp[jName] = standingsMap.get(jName)!;
+        }
+        teamTotalPoints += (newJp[jName] || 0);
       });
 
-      // Ewentualny rezerwowy (jeśli potrzebny do puli drużyny, zależnie od reguł, tutaj sumujemy główiznę)
-      if (user.reserveJumper) {
-        const foundRes = parsedStandings.find(p => p.name.toLowerCase() === user.reserveJumper!.toLowerCase());
-        if (foundRes) {
-          newJp[user.reserveJumper] = foundRes.totalPoints;
-        }
+      if (user.reserveJumper && standingsMap.has(user.reserveJumper)) {
+        newJp[user.reserveJumper] = standingsMap.get(user.reserveJumper)!;
       }
 
       return { ...user, points: teamTotalPoints, jumperPoints: newJp };
@@ -271,6 +267,7 @@ export default function App() {
       setCurrentUser(updatedUsers.find(u => u.id === currentUser.id) || currentUser);
     }
 
+    // Zapis w bazie Cloudflare D1
     for (const u of updatedUsers) {
       await fetch('/api/admin/update-points', {
         method: 'POST',
@@ -279,7 +276,7 @@ export default function App() {
       }).catch(() => {});
     }
 
-    setImportStatus(`Sukces! Zaktualizowano punkty generalne dla ${parsedStandings.length} zawodników.`);
+    setImportStatus(`Sukces! Przetworzono i zaktualizowano punkty dla ${standingsMap.size} skoczków.`);
     setPdfText('');
   };
 
@@ -307,7 +304,7 @@ export default function App() {
   };
 
   const handleResetLeague = async () => {
-    if (!window.confirm("Czy na pewno chcesz zresetować ligę? Wyczyszczone zostaną punkty, składy oraz historia przed draftem!")) return;
+    if (!window.confirm("Czy na pewno chcesz zresetować ligę? Wyczyszczone zostaną punkty i składy przed draftem!")) return;
 
     const resetUsers = usersDb.map(u => ({
       ...u,
@@ -321,7 +318,6 @@ export default function App() {
     if (currentUser) {
       setCurrentUser(resetUsers.find(u => u.id === currentUser.id) || null);
     }
-    setLatestStandings([]);
 
     for (const u of resetUsers) {
       await fetch('/api/admin/update-points', {
@@ -336,7 +332,7 @@ export default function App() {
       }).catch(() => {});
     }
 
-    alert("Dane zostały zresetowane. Możesz rozpocząć czysty draft!");
+    alert("Dane ligi zostały pomyślnie zresetowane!");
   };
 
   if (!currentUser) {
@@ -638,43 +634,90 @@ export default function App() {
           </div>
         )}
 
+        {/* NOWA, INTERAKTYWNA ZAKŁADKA KLASYFIKACJI FANTASY */}
         {activeTab === 'contests' && (
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-            <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-400" /> Klasyfikacja Fantasy – Skoczci z Drużyn (Wg Punktów PŚ)
-            </h2>
-            <p className="text-xs text-slate-400">Poniżej znajdują się wszyscy skoczkowie należący do drużyn uczestników, posortowani według aktualnego dorobku z oficjalnej klasyfikacji generalnej:</p>
-            
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-blue-400" /> Ranking Użytych Skoczków
+                </h2>
+                <p className="text-xs text-slate-400">Wyświetla tylko zawodników powiązanych z Waszymi drużynami, uporządkowanych od najwyższej liczby punktów.</p>
+              </div>
+            </div>
+
             {(() => {
-              // Zbieramy unikalnych skoczków z drużyn
-              const teamJumpersMap = new Map<string, number>();
+              interface FantasyJumper {
+                name: string;
+                pts: number;
+                ownerTeam: string;
+                ownerUser: string;
+                isReserve: boolean;
+              }
+
+              const jumpersList: FantasyJumper[] = [];
+
               usersDb.forEach(u => {
                 u.mainJumpers.forEach(j => {
-                  teamJumpersMap.set(j, u.jumperPoints[j] || 0);
+                  jumpersList.push({
+                    name: j,
+                    pts: u.jumperPoints[j] || 0,
+                    ownerTeam: u.teamName,
+                    ownerUser: u.username,
+                    isReserve: false
+                  });
                 });
                 if (u.reserveJumper) {
-                  teamJumpersMap.set(u.reserveJumper, u.jumperPoints[u.reserveJumper] || 0);
+                  jumpersList.push({
+                    name: u.reserveJumper,
+                    pts: u.jumperPoints[u.reserveJumper] || 0,
+                    ownerTeam: u.teamName,
+                    ownerUser: u.username,
+                    isReserve: true
+                  });
                 }
               });
 
-              const sortedTeamJumpers = Array.from(teamJumpersMap.entries())
-                .map(([name, pts]) => ({ name, pts }))
-                .sort((a, b) => b.pts - a.pts);
+              // Sortowanie od największej liczby punktów
+              jumpersList.sort((a, b) => b.pts - a.pts);
 
-              if (sortedTeamJumpers.length === 0 || sortedTeamJumpers.every(j => j.pts === 0)) {
+              if (jumpersList.length === 0) {
                 return (
-                  <div className="text-center py-12 text-slate-400 text-xs italic">
-                    Brak przypisanych punktów lub skoczków. Zaimportuj raport klasyfikacji generalnej PŚ w panelu admina.
+                  <div className="text-center py-12 text-slate-500 text-xs italic bg-slate-950/40 rounded-xl border border-slate-800">
+                    Brak wybranych skoczków w drużynach. Uczestnicy muszą dodać zawodników w zakładce "Moja Drużyna".
                   </div>
                 );
               }
 
               return (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {sortedTeamJumpers.map((item, idx) => (
-                    <div key={idx} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs">
-                      <span className="text-slate-200 font-medium">{idx + 1}. {item.name}</span>
-                      <span className="font-bold text-yellow-400 text-sm">{item.pts} pkt</span>
+                <div className="space-y-2 pt-2">
+                  {jumpersList.map((item, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`p-3 bg-slate-950 border rounded-xl flex items-center justify-between transition ${item.isReserve ? 'border-yellow-500/20 bg-yellow-950/10' : 'border-slate-800'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`w-6 h-6 flex items-center justify-center font-bold text-xs rounded-lg ${idx === 0 ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : idx === 1 ? 'bg-slate-300/20 text-slate-300 border border-slate-400/30' : idx === 2 ? 'bg-amber-700/20 text-amber-500 border border-amber-600/30' : 'bg-slate-900 text-slate-400'}`}>
+                          {idx + 1}
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-sm text-slate-200">{item.name}</span>
+                            {item.isReserve && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-yellow-500/10 border border-yellow-500/30 rounded text-yellow-400 flex items-center gap-0.5">
+                                <Star className="w-2.5 h-2.5 fill-yellow-400" /> Rezerwa
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            Drużyna: <strong className="text-slate-400">{item.ownerTeam}</strong> ({item.ownerUser})
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-base font-extrabold text-yellow-400">{item.pts} pkt</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -778,7 +821,7 @@ export default function App() {
                     rows={3}
                     value={pdfText}
                     onChange={e => setPdfText(e.target.value)}
-                    placeholder="Wklej tekst raportu generalnego PŚ (z kolumną TOTAL)..."
+                    placeholder="Wklej tekst ze skopiowanej tabeli World Cup Standings (z kolumną TOTAL)..."
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:border-yellow-500"
                   />
                   <button 
