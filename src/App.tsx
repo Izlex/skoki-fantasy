@@ -200,7 +200,7 @@ export default function App() {
     syncRosterToDb(updatedUser);
   };
 
-  // ULEPSZONY PARSER FIS – RADZI SOBIE Z KAŻDYM FORMATEM WYNIKÓW Z PDF
+  // HYBRYDOWY PARSER FIS – WYKRYWA SKOCZKÓW W OBU FORMATACH (Z NUMEREM I BEZ NUMERU)
   const handleParseAndApplyResults = async () => {
     if (!pdfText.trim()) return alert("Wklej tekst wyników!");
 
@@ -209,16 +209,15 @@ export default function App() {
     
     const lines = pdfText.split('\n');
 
-    // Szukamy po kolei każdego skoczka z naszej ogólnej listy
+    // KROK 1: Próba szukania numeru miejsca (np. "1.", "2.") w sąsiedztwie nazwiska
     INITIAL_JUMPERS.forEach(jumper => {
       const parts = jumper.split(' ');
-      const lastName = parts[parts.length - 1].toLowerCase(); // np. "stoch"
-      const firstName = parts[0].toLowerCase(); // np. "kamil"
+      const lastName = parts[parts.length - 1].toLowerCase();
+      const firstName = parts[0].toLowerCase();
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].toLowerCase();
         if (line.includes(lastName) || (line.includes(firstName) && line.includes(lastName))) {
-          // Przeszukujemy otoczenie tej linii (2 linie w górę i w dół), aby znaleźć numer miejsca z kropką np. "1.", "2."
           for (let offset = -2; offset <= 2; offset++) {
             const idx = i + offset;
             if (idx >= 0 && idx < lines.length) {
@@ -238,14 +237,31 @@ export default function App() {
       }
     });
 
+    // KROK 2 (TRYB AWARYJNY): Jeśli teksty PDF zgubiły kropki przy miejscach, czytamy skoczków w kolejności ich występowania od góry pliku
+    if (parsedMap.size === 0) {
+      let currentRank = 1;
+      lines.forEach(line => {
+        const lowerLine = line.toLowerCase();
+        INITIAL_JUMPERS.forEach(jumper => {
+          const parts = jumper.split(' ');
+          const lastName = parts[parts.length - 1].toLowerCase();
+          if (lowerLine.includes(lastName) && !parsedMap.has(jumper)) {
+            const pts = (currentRank <= 30) ? (fisPoints[currentRank - 1] || 0) : 0;
+            parsedMap.set(jumper, { name: jumper, rank: currentRank, points: pts });
+            currentRank++;
+          }
+        });
+      });
+    }
+
     const parsed = Array.from(parsedMap.values());
     if (parsed.length === 0) {
-      return alert("Nie rozpoznano skoczków. Upewnij się, że wklejasz oficjalne wyniki.");
+      return alert("Nie rozpoznano żądnego skoczka w tekście. Upewnij się, że wklejasz właściwe wyniki FIS.");
     }
 
     parsed.sort((a, b) => a.rank - b.rank);
 
-    // Przeliczamy i sumujemy punkty dla drużyn na bieżąco
+    // Przeliczamy i dodajemy punkty dla graczy w lidze
     const updatedUsers = usersDb.map(user => {
       let totalMatchPoints = 0;
       const newJp = { ...user.jumperPoints };
@@ -278,7 +294,7 @@ export default function App() {
       }).catch(() => {});
     }
 
-    setImportStatus(`Sukces! Zmapowano ${parsed.length} skoczków i zaktualizowano klasyfikację.`);
+    setImportStatus(`Sukces! Przetworzono ${parsed.length} skoczków i zaktualizowano ligę.`);
     setPdfText('');
   };
 
@@ -305,9 +321,8 @@ export default function App() {
     }
   };
 
-  // OPCJA RESETU DANYCH LIGI (DLA ADMINA)
   const handleResetLeague = async () => {
-    if (!window.confirm("Czy na pewno chcesz zresetować całą ligę? Wyczyszczone zostaną punkty, składy i wyniki konkursów do stanu początkowego!")) return;
+    if (!window.confirm("Czy na pewno chcesz zresetować ligę? Wyczyszczone zostaną punkty, składy oraz historia przed draftem!")) return;
 
     const resetUsers = usersDb.map(u => ({
       ...u,
@@ -336,7 +351,7 @@ export default function App() {
       }).catch(() => {});
     }
 
-    alert("Liga została pomyślnie zresetowana. Możecie rozpoczynać prawdziwy draft!");
+    alert("Dane zostały zresetowane. Możesz rozpocząć czysty draft!");
   };
 
   if (!currentUser) {
@@ -649,7 +664,6 @@ export default function App() {
               </div>
             ) : (
               recentContests.map((c, i) => {
-                // Wybieramy tylko tych skoczków, którzy należą do składów drużyn w lidze
                 const teamJumpersSet = new Set<string>();
                 usersDb.forEach(u => {
                   u.mainJumpers.forEach(j => teamJumpersSet.add(j));
@@ -662,7 +676,7 @@ export default function App() {
                   <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4">
                     <h3 className="font-bold text-blue-400">{c.name}</h3>
                     {fantasyResults.length === 0 ? (
-                      <p className="text-xs text-slate-500 italic">Żaden skoczek z Twojej / innych drużyn nie zdobył punktów w tym konkursie.</p>
+                      <p className="text-xs text-slate-500 italic">Żaden skoczek z drużyn graczy nie zdobył punktów w tym konkursie.</p>
                     ) : (
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                         {fantasyResults.map((res, rIdx) => (
@@ -788,11 +802,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* OPCJA RESETOWANIA DANYCH PRZED DRAFTEM */}
               <div className="bg-red-950/20 p-4 border border-red-500/30 rounded-xl flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-semibold text-red-300">Resetowanie / Czyszczenie Ligi</h3>
-                  <p className="text-[11px] text-slate-400">Usuń punkty testowe i składy, aby przygotować czystą kartę przed właściwym draftem.</p>
+                  <p className="text-[11px] text-slate-400">Usuń punkty testowe i składy przed właściwym draftem.</p>
                 </div>
                 <button 
                   onClick={handleResetLeague}
