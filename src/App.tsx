@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Users, Shield, FileText, Award, CheckCircle, Trash2, Search, UserCheck, Edit3, ChevronDown, ChevronUp, Star, LogIn, LogOut, Sliders, Key, RotateCcw } from 'lucide-react';
+import { Trophy, Users, Shield, FileText, Award, CheckCircle, Trash2, Search, UserCheck, Edit3, ChevronDown, ChevronUp, Star, LogIn, LogOut, Sliders, Key, RotateCcw, Send } from 'lucide-react';
 
 const INITIAL_JUMPERS = [
   "Aleksander Zniszczoł", "Dawid Kubacki", "Piotr Żyła", "Kamil Stoch", "Paweł Wąsek", 
@@ -11,6 +11,13 @@ const INITIAL_JUMPERS = [
   "Anze Lanisek", "Timi Zajc", "Lovro Kos", "Ryoyu Kobayashi", "Ren Nikaido", "Naoki Nakamura",
   "Gregor Deschwanden", "Killian Peier", "Simon Ammann", "Niko Kytosaho", "Giovanni Bresadola"
 ];
+
+// Oficjalna tabela punktowa PŚ w skokach narciarskich (miejsca 1-30)
+const FIS_POINTS_MAP: Record<number, number> = {
+  1: 100, 2: 80, 3: 60, 4: 50, 5: 45, 6: 40, 7: 36, 8: 32, 9: 29, 10: 26,
+  11: 24, 12: 22, 13: 20, 14: 18, 15: 16, 16: 15, 17: 14, 18: 13, 19: 12, 20: 11,
+  21: 10, 22: 9, 23: 8, 24: 7, 25: 6, 26: 5, 27: 4, 28: 3, 29: 2, 30: 1
+};
 
 interface UserAccount {
   id: string;
@@ -40,7 +47,9 @@ export default function App() {
   ]);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [pdfText, setPdfText] = useState('');
+  
+  // Stan dla ręcznego wprowadzania pozycji skoczków w nowym konkursie (np. { "Stefan Kraft": "1", "Kamil Stoch": "15" })
+  const [manualPositions, setManualPositions] = useState<Record<string, string>>({});
   const [importStatus, setImportStatus] = useState('');
 
   const [selectedUserToEdit, setSelectedUserToEdit] = useState<string>('u-user-1');
@@ -199,64 +208,35 @@ export default function App() {
     syncRosterToDb(updatedUser);
   };
 
-  // Niezawodny Parser FIS Standings - czyta precyzyjnie Nazwisko i kolumnę TOTAL
-  const handleParseAndApplyStandings = async () => {
-    if (!pdfText.trim()) return alert("Wklej tekst klasyfikacji generalnej!");
-
-    const lines = pdfText.split('\n');
-    const standingsMap = new Map<string, number>();
-
-    INITIAL_JUMPERS.forEach(jumper => {
-      const parts = jumper.split(' ');
-      const lastName = parts[parts.length - 1].toLowerCase(); 
-      const firstName = parts[0].toLowerCase();
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].toLowerCase();
-        
-        // Dopasowanie nazwiska
-        if (line.includes(lastName) || (line.includes(firstName) && line.includes(lastName))) {
-          // Szukamy najbliższej liczby w linii z nazwiskiem oraz sąsiednich
-          for (let offset = -1; offset <= 2; offset++) {
-            const checkIdx = i + offset;
-            if (checkIdx >= 0 && checkIdx < lines.length) {
-              const targetStr = lines[checkIdx];
-              // Wyciągamy pierwsze większe liczby (punkty TOTAL w generalce)
-              const matches = targetStr.match(/\b([0-9]{1,4})\b/g);
-              if (matches) {
-                // Filtrujemy numery miejsc (np 1, 2) oraz błędy - szukamy właściwych punktów
-                const candidates = matches.map(Number).filter(n => n >= 0 && n <= 3500);
-                if (candidates.length > 0) {
-                  // Wybieramy największą pasującą wartość z tej linii (punkty TOTAL w PŚ)
-                  const totalPts = Math.max(...candidates);
-                  standingsMap.set(jumper, totalPts);
-                  break;
-                }
-              }
-            }
-          }
-        }
-      }
-    });
-
-    if (standingsMap.size === 0) {
-      return alert("Nie rozpoznano punktów. Upewnij się, że wklejasz tekst ze skopiowanej tabeli World Cup Standings.");
-    }
-
-    // Aktualizujemy punkty dla każdego użytkownika
+  // RĘCZNE ZATWIERDZANIE WYNIKÓW KONKURSU (WPISANE POZYCJE -> AUTOMATYCZNE PUNKTY PŚ)
+  const handleApplyManualContest = async () => {
     const updatedUsers = usersDb.map(user => {
       let teamTotalPoints = 0;
-      const newJp: Record<string, number> = { ...user.jumperPoints };
+      const newJp = { ...user.jumperPoints };
 
       user.mainJumpers.forEach(jName => {
-        if (standingsMap.has(jName)) {
-          newJp[jName] = standingsMap.get(jName)!;
+        const posStr = manualPositions[jName];
+        if (posStr !== undefined && posStr !== '') {
+          const pos = parseInt(posStr, 10);
+          if (!isNaN(pos) && pos > 0) {
+            const earnedPts = FIS_POINTS_MAP[pos] || 0;
+            // Dodajemy punkty z tego konkursu do dotychczasowej puli zawodnika
+            newJp[jName] = (newJp[jName] || 0) + earnedPts;
+          }
         }
         teamTotalPoints += (newJp[jName] || 0);
       });
 
-      if (user.reserveJumper && standingsMap.has(user.reserveJumper)) {
-        newJp[user.reserveJumper] = standingsMap.get(user.reserveJumper)!;
+      // Opcjonalnie dla rezerwowego jeśli też wystąpił
+      if (user.reserveJumper) {
+        const posStr = manualPositions[user.reserveJumper];
+        if (posStr !== undefined && posStr !== '') {
+          const pos = parseInt(posStr, 10);
+          if (!isNaN(pos) && pos > 0) {
+            const earnedPts = FIS_POINTS_MAP[pos] || 0;
+            newJp[user.reserveJumper] = (newJp[user.reserveJumper] || 0) + earnedPts;
+          }
+        }
       }
 
       return { ...user, points: teamTotalPoints, jumperPoints: newJp };
@@ -267,7 +247,7 @@ export default function App() {
       setCurrentUser(updatedUsers.find(u => u.id === currentUser.id) || currentUser);
     }
 
-    // Zapis w bazie Cloudflare D1
+    // Zapis do bazy D1
     for (const u of updatedUsers) {
       await fetch('/api/admin/update-points', {
         method: 'POST',
@@ -276,8 +256,8 @@ export default function App() {
       }).catch(() => {});
     }
 
-    setImportStatus(`Sukces! Przetworzono i zaktualizowano punkty dla ${standingsMap.size} skoczków.`);
-    setPdfText('');
+    setImportStatus("Sukces! Wyniki konkursu zostały dodane do dorobku zawodników.");
+    setManualPositions({});
   };
 
   const handleManualPointsCorrection = async (userId: string, delta: number) => {
@@ -634,7 +614,7 @@ export default function App() {
           </div>
         )}
 
-        {/* NOWA, INTERAKTYWNA ZAKŁADKA KLASYFIKACJI FANTASY */}
+        {/* INTERAKTYWNA ZAKŁADKA RANKINGU FANTASY */}
         {activeTab === 'contests' && (
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
@@ -642,7 +622,7 @@ export default function App() {
                 <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
                   <FileText className="w-5 h-5 text-blue-400" /> Ranking Użytych Skoczków
                 </h2>
-                <p className="text-xs text-slate-400">Wyświetla tylko zawodników powiązanych z Waszymi drużynami, uporządkowanych od najwyższej liczby punktów.</p>
+                <p className="text-xs text-slate-400">Wyświetla zawodników z Waszych drużyn, posortowanych od najwyższej liczby punktów.</p>
               </div>
             </div>
 
@@ -678,13 +658,12 @@ export default function App() {
                 }
               });
 
-              // Sortowanie od największej liczby punktów
               jumpersList.sort((a, b) => b.pts - a.pts);
 
               if (jumpersList.length === 0) {
                 return (
                   <div className="text-center py-12 text-slate-500 text-xs italic bg-slate-950/40 rounded-xl border border-slate-800">
-                    Brak wybranych skoczków w drużynach. Uczestnicy muszą dodać zawodników w zakładce "Moja Drużyna".
+                    Brak wybranych skoczków w drużynach.
                   </div>
                 );
               }
@@ -781,6 +760,65 @@ export default function App() {
                 </form>
               </div>
 
+              {/* RĘCZNE WPROWADZANIE WYNIKÓW KONKURSU (IDEALNE NA TELEFON) */}
+              <div className="bg-slate-950 p-5 border border-slate-800 rounded-xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xs font-semibold text-yellow-400 flex items-center gap-2">
+                      <FileText className="w-4 h-4" /> Ręczne Wprowadzanie Pozycji z Konkursu
+                    </h3>
+                    <p className="text-[11px] text-slate-400">Wpisz miejsce skoczka (1-30). System sam przeliczy oficjalne punkty PŚ i doda je do sumy!</p>
+                  </div>
+                </div>
+
+                {(() => {
+                  // Zbieramy wszystkich unikalnych skoczków z drużyn graczy
+                  const activeJumpersSet = new Set<string>();
+                  usersDb.forEach(u => {
+                    u.mainJumpers.forEach(j => activeJumpersSet.add(j));
+                    if (u.reserveJumper) activeJumpersSet.add(u.reserveJumper);
+                  });
+                  const activeList = Array.from(activeJumpersSet);
+
+                  if (activeList.length === 0) {
+                    return <p className="text-xs text-slate-500 italic">Brak skoczków w drużynach. Najpierw wybierzcie skoczków.</p>;
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-[350px] overflow-y-auto pr-2">
+                        {activeList.map((jName, idx) => (
+                          <div key={idx} className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between gap-3 text-xs">
+                            <span className="text-slate-200 truncate">{jName}</span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[10px] text-slate-400">Miejsce:</span>
+                              <input 
+                                type="number" 
+                                min="1" 
+                                max="60"
+                                placeholder="np. 5"
+                                value={manualPositions[jName] || ''}
+                                onChange={e => setManualPositions({ ...manualPositions, [jName]: e.target.value })}
+                                className="w-16 bg-slate-950 border border-slate-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none focus:border-yellow-500 font-bold"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button 
+                        onClick={handleApplyManualContest}
+                        className="w-full py-2.5 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-yellow-600/20"
+                      >
+                        <Send className="w-4 h-4" /> Zatwierdź i Przelicz Punkty z Konkursu
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {importStatus && <div className="text-xs text-green-400 font-medium">{importStatus}</div>}
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-3">
                   <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-2">
@@ -813,38 +851,18 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-3">
-                  <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-yellow-400" /> Import Klasyfikacji Generalnej PŚ
-                  </h3>
-                  <textarea 
-                    rows={3}
-                    value={pdfText}
-                    onChange={e => setPdfText(e.target.value)}
-                    placeholder="Wklej tekst ze skopiowanej tabeli World Cup Standings (z kolumną TOTAL)..."
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:border-yellow-500"
-                  />
+                <div className="bg-red-950/20 p-4 border border-red-500/30 rounded-xl flex flex-col justify-between space-y-3">
+                  <div>
+                    <h3 className="text-xs font-semibold text-red-300">Resetowanie / Czyszczenie Ligi</h3>
+                    <p className="text-[11px] text-slate-400">Usuń punkty testowe i składy przed właściwym draftem.</p>
+                  </div>
                   <button 
-                    onClick={handleParseAndApplyStandings}
-                    className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-lg transition"
+                    onClick={handleResetLeague}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-lg transition flex items-center justify-center gap-1.5"
                   >
-                    Zaktualizuj Punkty Generalne
+                    <RotateCcw className="w-4 h-4" /> Resetuj Dane
                   </button>
-                  {importStatus && <div className="text-[11px] text-green-400">{importStatus}</div>}
                 </div>
-              </div>
-
-              <div className="bg-red-950/20 p-4 border border-red-500/30 rounded-xl flex items-center justify-between">
-                <div>
-                  <h3 className="text-xs font-semibold text-red-300">Resetowanie / Czyszczenie Ligi</h3>
-                  <p className="text-[11px] text-slate-400">Usuń punkty testowe i składy przed właściwym draftem.</p>
-                </div>
-                <button 
-                  onClick={handleResetLeague}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-lg transition flex items-center gap-1.5"
-                >
-                  <RotateCcw className="w-4 h-4" /> Resetuj Dane
-                </button>
               </div>
 
             </div>
