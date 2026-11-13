@@ -1,15 +1,48 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Users, Shield, FileText, Award, CheckCircle, Trash2, Search, UserCheck, Edit3, ChevronDown, ChevronUp, Star, LogIn, LogOut, Sliders, Key, RotateCcw, Send } from 'lucide-react';
 
+// PEŁNA LISTA SKOCZKÓW Z OFICJALNYCH KADR (ZGODNA Z GRAFIKĄ)
 const INITIAL_JUMPERS = [
-  "Aleksander Zniszczoł", "Dawid Kubacki", "Piotr Żyła", "Kamil Stoch", "Paweł Wąsek", 
-  "Maciej Kot", "Kacper Tomasiak", "Klemens Joniak", "Jakub Wolny", "Andrzej Stękała",
-  "Stefan Kraft", "Jan Hoerl", "Daniel Tschofenig", "Manuel Fettner", "Daniel Huber", 
-  "Michael Hayboeck", "Stephan Embacher", "Andreas Wellinger", "Philipp Raimund", 
-  "Karl Geiger", "Pius Paschke", "Stephan Leyhe", "Johann Andre Forfang", "Marius Lindvik", 
-  "Kristoffer Eriksen Sundal", "Halvor Egner Granerud", "Peter Prevc", "Domen Prevc", 
-  "Anze Lanisek", "Timi Zajc", "Lovro Kos", "Ryoyu Kobayashi", "Ren Nikaido", "Naoki Nakamura",
-  "Gregor Deschwanden", "Killian Peier", "Simon Ammann", "Niko Kytosaho", "Giovanni Bresadola"
+  // Austria
+  "Clemens Aigner", "Stephan Embacher", "Lukas Haagen", "Jan Hoerl", "Stefan Kraft", 
+  "Maximilian Ortner", "Jonas Schuster", "Julian Smid", "Simon Steinberger", "Daniel Tschofenig",
+  // Bułgaria
+  "Wladimir Zografski",
+  // Czechy
+  "Roman Koudelka",
+  // Estonia
+  "Artti Aigro", "Kaimar Vagul",
+  // Finlandia
+  "Antti Aalto", "Niko Kytosaho", "Jarkko Maatta", "Eetu Nousiainen", "Vilho Palosaari", "Kasperi Valto",
+  // Francja
+  "Jules Chervet", "Valentin Foubert", "Enzo Milesi",
+  // Japonia
+  "Ryoyu Kobayashi", "Tomofumi Naito", "Naoki Nakamura", "Ren Nikaido", "Yuto Nakamura", "Yukiya Sato",
+  // Kazachstan
+  "Ilia Mizernykh", "Danil Wasiliew",
+  // Niemcy
+  "Ben Bayer", "Karl Geiger", "Felix Hoffmann", "Pius Paschke", "Philipp Raimund", 
+  "Luca Roth", "Constantin Schmid", "Max Unglaube", "Andreas Wellinger",
+  // Norwegia
+  "Johann Andre Forfang", "Halvor Egner Granerud", "Bendik Jakobsen Heggli", "Isak Andreas Langmo", 
+  "Marius Lindvik", "Benjamin Oestvold", "Robin Pedersen", "Kristoffer Eriksen Sundal",
+  // Polska
+  "Klemens Joniak", "Maciej Kot", "Dawid Kubacki", "Kacper Tomasiak", "Paweł Wąsek", 
+  "Jakub Wolny", "Aleksander Zniszczoł", "Piotr Żyła",
+  // Słowacja
+  "Hektor Kapustik",
+  // Słowenia
+  "Enej Faletic", "Ziga Jancar", "Ziga Jelar", "Lovro Kos", "Anze Lanisek", "Rok Oblak", "Domen Prevc", "Timi Zajc",
+  // Szwajcaria
+  "Simon Ammann", "Gregor Deschwanden", "Sandro Hauswirth", "Remo Imhof", "Juri Kesseli", "Killian Peier", "Felix Trunz",
+  // Turcja
+  "Fatih Arda Ipcioglu",
+  // Ukraina
+  "Witalij Kaliniczenko", "Jewhen Marusiak",
+  // USA
+  "Kevin Bickner", "Jason Colby", "Tate Frantz", "Henry Loher",
+  // Włochy
+  "Giovanni Bresadola", "Francisco Cecon", "Alex Insam"
 ];
 
 const FIS_POINTS_MAP: Record<number, number> = {
@@ -47,7 +80,6 @@ export default function App() {
 
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Wybór drużyny w panelu admina do wpisywania wyników oraz wpisane pozycje
   const [adminSelectedTeamId, setAdminSelectedTeamId] = useState<string>('');
   const [teamManualPositions, setTeamManualPositions] = useState<Record<string, string>>({});
   const [importStatus, setImportStatus] = useState('');
@@ -188,17 +220,26 @@ export default function App() {
 
   const handleAddJumper = (name: string, isReserve: boolean) => {
     if (!currentUser) return;
+
+    for (const u of usersDb) {
+      if (u.mainJumpers.includes(name) || u.reserveJumper === name) {
+        if (u.id === currentUser.id) {
+          return alert(`Ten skoczek jest już w Twoim składzie (${u.mainJumpers.includes(name) ? 'skład główny' : 'rezerwa'})!`);
+        } else {
+          return alert(`Ten skoczek został już wybrany przez drużynę "${u.teamName}" (${u.username})! W tej lidze skoczkowie nie mogą się dublować.`);
+        }
+      }
+    }
+
     let updatedUser;
     if (isReserve) {
       if (currentUser.reserveJumper) return alert("Masz już rezerwowego!");
-      if (currentUser.mainJumpers.includes(name)) return alert("Skoczek w składzie!");
       updatedUser = { ...currentUser, reserveJumper: name };
     } else {
-      if (currentUser.mainJumpers.length >= 5) return alert("Maksymalnie 5 skoczków!");
-      if (currentUser.mainJumpers.includes(name)) return alert("Skoczek już w składzie!");
-      if (currentUser.reserveJumper === name) return alert("Skoczek jest rezerwowym!");
+      if (currentUser.mainJumpers.length >= 5) return alert("Maksymalnie 5 skoczków w składzie głównym!");
       updatedUser = { ...currentUser, mainJumpers: [...currentUser.mainJumpers, name] };
     }
+
     setCurrentUser(updatedUser);
     setUsersDb(usersDb.map(u => u.id === currentUser.id ? updatedUser : u));
     syncRosterToDb(updatedUser);
@@ -217,7 +258,6 @@ export default function App() {
     syncRosterToDb(updatedUser);
   };
 
-  // ZATWIERDZANIE RĘCZNIE WPISANYCH POZYCJI DLA WYBRANEJ DRUŻYNY
   const handleApplyTeamManualContest = async () => {
     const targetUser = usersDb.find(u => u.id === adminSelectedTeamId);
     if (!targetUser) return alert("Wybierz drużynę!");
@@ -378,7 +418,6 @@ export default function App() {
   const sortedUsers = [...usersDb].sort((a, b) => b.points - a.points);
   const filteredJumpers = INITIAL_JUMPERS.filter(j => j.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  // Wybrana drużyna do edycji wyników w panelu admina
   const selectedAdminTeam = usersDb.find(u => u.id === adminSelectedTeamId);
 
   return (
@@ -596,19 +635,32 @@ export default function App() {
                     const isSelectedMain = currentUser.mainJumpers.includes(jumper);
                     const isSelectedReserve = currentUser.reserveJumper === jumper;
 
+                    let takenByTeam: string | null = null;
+                    for (const u of usersDb) {
+                      if (u.mainJumpers.includes(jumper) || u.reserveJumper === jumper) {
+                        takenByTeam = u.teamName;
+                        break;
+                      }
+                    }
+
                     return (
                       <div key={idx} className="p-3 bg-slate-950 border border-slate-800/80 rounded-xl flex items-center justify-between">
-                        <span className="text-xs font-medium text-slate-200">{jumper}</span>
+                        <div>
+                          <span className="text-xs font-medium text-slate-200 block">{jumper}</span>
+                          {takenByTeam && (
+                            <span className="text-[10px] text-red-400 italic">Zajęty: {takenByTeam}</span>
+                          )}
+                        </div>
                         <div className="flex gap-1">
                           <button 
-                            disabled={isSelectedMain || isSelectedReserve}
+                            disabled={isSelectedMain || isSelectedReserve || takenByTeam !== null}
                             onClick={() => handleAddJumper(jumper, false)}
                             className="px-2 py-1 bg-blue-900/40 hover:bg-blue-600 text-blue-200 text-[10px] rounded-lg border border-blue-500/30 disabled:opacity-30"
                           >
                             + Skład
                           </button>
                           <button 
-                            disabled={isSelectedMain || isSelectedReserve}
+                            disabled={isSelectedMain || isSelectedReserve || takenByTeam !== null}
                             onClick={() => handleAddJumper(jumper, true)}
                             className="px-2 py-1 bg-yellow-900/40 hover:bg-yellow-600 text-yellow-200 text-[10px] rounded-lg border border-yellow-500/30 disabled:opacity-30"
                           >
@@ -883,7 +935,7 @@ export default function App() {
                       if (isNaN(val)) return alert("Wpisz poprawną liczbę!");
                       handleManualPointsCorrection(selectedUserToEdit, val);
                     }}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 font-bold text-xs rounded-lg transition"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 font-bold text-xs rounded-xl transition"
                   >
                     Zapisz Korektę w Bazie
                   </button>
@@ -896,7 +948,7 @@ export default function App() {
                   </div>
                   <button 
                     onClick={handleResetLeague}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-lg transition flex items-center justify-center gap-1.5"
+                    className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5"
                   >
                     <RotateCcw className="w-4 h-4" /> Resetuj Dane
                   </button>
