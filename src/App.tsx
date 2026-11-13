@@ -12,7 +12,6 @@ const INITIAL_JUMPERS = [
   "Gregor Deschwanden", "Killian Peier", "Simon Ammann", "Niko Kytosaho", "Giovanni Bresadola"
 ];
 
-// Oficjalna tabela punktowa PŚ w skokach narciarskich (miejsca 1-30)
 const FIS_POINTS_MAP: Record<number, number> = {
   1: 100, 2: 80, 3: 60, 4: 50, 5: 45, 6: 40, 7: 36, 8: 32, 9: 29, 10: 26,
   11: 24, 12: 22, 13: 20, 14: 18, 15: 16, 16: 15, 17: 14, 18: 13, 19: 12, 20: 11,
@@ -48,8 +47,9 @@ export default function App() {
 
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Stan dla ręcznego wprowadzania pozycji skoczków w nowym konkursie (np. { "Stefan Kraft": "1", "Kamil Stoch": "15" })
-  const [manualPositions, setManualPositions] = useState<Record<string, string>>({});
+  // Wybór drużyny w panelu admina do wpisywania wyników oraz wpisane pozycje
+  const [adminSelectedTeamId, setAdminSelectedTeamId] = useState<string>('');
+  const [teamManualPositions, setTeamManualPositions] = useState<Record<string, string>>({});
   const [importStatus, setImportStatus] = useState('');
 
   const [selectedUserToEdit, setSelectedUserToEdit] = useState<string>('u-user-1');
@@ -58,6 +58,12 @@ export default function App() {
   const [editUserTarget, setEditUserTarget] = useState<string>('u-user-1');
   const [newUsernameInput, setNewUsernameInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
+
+  useEffect(() => {
+    if (usersDb.length > 0 && !adminSelectedTeamId) {
+      setAdminSelectedTeamId(usersDb[0].id);
+    }
+  }, [usersDb]);
 
   useEffect(() => {
     fetch('/api/users')
@@ -87,6 +93,9 @@ export default function App() {
             };
           });
           setUsersDb(mapped);
+          if (mapped.length > 0 && !adminSelectedTeamId) {
+            setAdminSelectedTeamId(mapped[0].id);
+          }
           
           setCurrentUser(prev => {
             if (!prev) return null;
@@ -208,56 +217,54 @@ export default function App() {
     syncRosterToDb(updatedUser);
   };
 
-  // RĘCZNE ZATWIERDZANIE WYNIKÓW KONKURSU (WPISANE POZYCJE -> AUTOMATYCZNE PUNKTY PŚ)
-  const handleApplyManualContest = async () => {
-    const updatedUsers = usersDb.map(user => {
-      let teamTotalPoints = 0;
-      const newJp = { ...user.jumperPoints };
+  // ZATWIERDZANIE RĘCZNIE WPISANYCH POZYCJI DLA WYBRANEJ DRUŻYNY
+  const handleApplyTeamManualContest = async () => {
+    const targetUser = usersDb.find(u => u.id === adminSelectedTeamId);
+    if (!targetUser) return alert("Wybierz drużynę!");
 
-      user.mainJumpers.forEach(jName => {
-        const posStr = manualPositions[jName];
-        if (posStr !== undefined && posStr !== '') {
-          const pos = parseInt(posStr, 10);
-          if (!isNaN(pos) && pos > 0) {
-            const earnedPts = FIS_POINTS_MAP[pos] || 0;
-            // Dodajemy punkty z tego konkursu do dotychczasowej puli zawodnika
-            newJp[jName] = (newJp[jName] || 0) + earnedPts;
-          }
-        }
-        teamTotalPoints += (newJp[jName] || 0);
-      });
+    let teamTotalPoints = 0;
+    const newJp = { ...targetUser.jumperPoints };
 
-      // Opcjonalnie dla rezerwowego jeśli też wystąpił
-      if (user.reserveJumper) {
-        const posStr = manualPositions[user.reserveJumper];
-        if (posStr !== undefined && posStr !== '') {
-          const pos = parseInt(posStr, 10);
-          if (!isNaN(pos) && pos > 0) {
-            const earnedPts = FIS_POINTS_MAP[pos] || 0;
-            newJp[user.reserveJumper] = (newJp[user.reserveJumper] || 0) + earnedPts;
-          }
+    targetUser.mainJumpers.forEach(jName => {
+      const posStr = teamManualPositions[jName];
+      if (posStr !== undefined && posStr !== '') {
+        const pos = parseInt(posStr, 10);
+        if (!isNaN(pos) && pos > 0) {
+          const earnedPts = FIS_POINTS_MAP[pos] || 0;
+          newJp[jName] = (newJp[jName] || 0) + earnedPts;
         }
       }
-
-      return { ...user, points: teamTotalPoints, jumperPoints: newJp };
+      teamTotalPoints += (newJp[jName] || 0);
     });
 
+    if (targetUser.reserveJumper) {
+      const posStr = teamManualPositions[targetUser.reserveJumper];
+      if (posStr !== undefined && posStr !== '') {
+        const pos = parseInt(posStr, 10);
+        if (!isNaN(pos) && pos > 0) {
+          const earnedPts = FIS_POINTS_MAP[pos] || 0;
+          newJp[targetUser.reserveJumper] = (newJp[targetUser.reserveJumper] || 0) + earnedPts;
+        }
+      }
+    }
+
+    const updatedUsers = usersDb.map(u => u.id === targetUser.id ? { ...u, points: teamTotalPoints, jumperPoints: newJp } : u);
     setUsersDb(updatedUsers);
-    if (currentUser) {
+    if (currentUser && currentUser.id === targetUser.id) {
       setCurrentUser(updatedUsers.find(u => u.id === currentUser.id) || currentUser);
     }
 
-    // Zapis do bazy D1
-    for (const u of updatedUsers) {
+    try {
       await fetch('/api/admin/update-points', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: u.id, points: u.points, jumperPoints: u.jumperPoints })
-      }).catch(() => {});
+        body: JSON.stringify({ userId: targetUser.id, points: teamTotalPoints, jumperPoints: newJp })
+      });
+      setImportStatus(`Sukces! Zaktualizowano punkty dla drużyny: ${targetUser.teamName}`);
+      setTeamManualPositions({});
+    } catch (err) {
+      alert("Błąd zapisu punktów w bazie.");
     }
-
-    setImportStatus("Sukces! Wyniki konkursu zostały dodane do dorobku zawodników.");
-    setManualPositions({});
   };
 
   const handleManualPointsCorrection = async (userId: string, delta: number) => {
@@ -370,6 +377,9 @@ export default function App() {
 
   const sortedUsers = [...usersDb].sort((a, b) => b.points - a.points);
   const filteredJumpers = INITIAL_JUMPERS.filter(j => j.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  // Wybrana drużyna do edycji wyników w panelu admina
+  const selectedAdminTeam = usersDb.find(u => u.id === adminSelectedTeamId);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -614,7 +624,7 @@ export default function App() {
           </div>
         )}
 
-        {/* INTERAKTYWNA ZAKŁADKA RANKINGU FANTASY */}
+        {/* RANKING FANTASY */}
         {activeTab === 'contests' && (
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
@@ -760,61 +770,89 @@ export default function App() {
                 </form>
               </div>
 
-              {/* RĘCZNE WPROWADZANIE WYNIKÓW KONKURSU (IDEALNE NA TELEFON) */}
+              {/* RĘCZNE WPROWADZANIE POZYCJI Z WYBOREM DRUŻYNY */}
               <div className="bg-slate-950 p-5 border border-slate-800 rounded-xl space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-xs font-semibold text-yellow-400 flex items-center gap-2">
-                      <FileText className="w-4 h-4" /> Ręczne Wprowadzanie Pozycji z Konkursu
+                      <FileText className="w-4 h-4" /> Ręczne Wprowadzanie Pozycji dla Drużyny
                     </h3>
-                    <p className="text-[11px] text-slate-400">Wpisz miejsce skoczka (1-30). System sam przeliczy oficjalne punkty PŚ i doda je do sumy!</p>
+                    <p className="text-[11px] text-slate-400">Wybierz drużynę z listy, wpisz zajęte przez nich pozycje (1-30), a system automatycznie doliczy punkty PŚ!</p>
                   </div>
                 </div>
 
-                {(() => {
-                  // Zbieramy wszystkich unikalnych skoczków z drużyn graczy
-                  const activeJumpersSet = new Set<string>();
-                  usersDb.forEach(u => {
-                    u.mainJumpers.forEach(j => activeJumpersSet.add(j));
-                    if (u.reserveJumper) activeJumpersSet.add(u.reserveJumper);
-                  });
-                  const activeList = Array.from(activeJumpersSet);
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Wybierz Drużynę</label>
+                    <select 
+                      value={adminSelectedTeamId}
+                      onChange={e => {
+                        setAdminSelectedTeamId(e.target.value);
+                        setTeamManualPositions({});
+                      }}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-white"
+                    >
+                      {usersDb.map(u => (
+                        <option key={u.id} value={u.id}>{u.teamName} ({u.username})</option>
+                      ))}
+                    </select>
+                  </div>
 
-                  if (activeList.length === 0) {
-                    return <p className="text-xs text-slate-500 italic">Brak skoczków w drużynach. Najpierw wybierzcie skoczków.</p>;
-                  }
-
-                  return (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-[350px] overflow-y-auto pr-2">
-                        {activeList.map((jName, idx) => (
-                          <div key={idx} className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between gap-3 text-xs">
-                            <span className="text-slate-200 truncate">{jName}</span>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-[10px] text-slate-400">Miejsce:</span>
-                              <input 
-                                type="number" 
-                                min="1" 
-                                max="60"
-                                placeholder="np. 5"
-                                value={manualPositions[jName] || ''}
-                                onChange={e => setManualPositions({ ...manualPositions, [jName]: e.target.value })}
-                                className="w-16 bg-slate-950 border border-slate-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none focus:border-yellow-500 font-bold"
-                              />
+                  {selectedAdminTeam && (
+                    <div className="space-y-3 pt-2">
+                      {selectedAdminTeam.mainJumpers.length === 0 && !selectedAdminTeam.reserveJumper ? (
+                        <p className="text-xs text-slate-500 italic p-3 bg-slate-900 rounded-xl">Ta drużyna nie ma jeszcze wybranych skoczków w składzie.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {selectedAdminTeam.mainJumpers.map((jName, idx) => (
+                            <div key={idx} className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between gap-3 text-xs">
+                              <span className="text-slate-200 truncate">{idx + 1}. {jName}</span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-[10px] text-slate-400">Miejsce:</span>
+                                <input 
+                                  type="number" 
+                                  min="1" 
+                                  max="60"
+                                  placeholder="np. 5"
+                                  value={teamManualPositions[jName] || ''}
+                                  onChange={e => setTeamManualPositions({ ...teamManualPositions, [jName]: e.target.value })}
+                                  className="w-16 bg-slate-950 border border-slate-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none focus:border-yellow-500 font-bold"
+                                />
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+
+                          {selectedAdminTeam.reserveJumper && (
+                            <div className="p-2.5 bg-yellow-950/20 border border-yellow-500/30 rounded-xl flex items-center justify-between gap-3 text-xs sm:col-span-2">
+                              <span className="text-yellow-200 flex items-center gap-1">
+                                <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" /> Rezerwa: {selectedAdminTeam.reserveJumper}
+                              </span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-[10px] text-slate-400">Miejsce:</span>
+                                <input 
+                                  type="number" 
+                                  min="1" 
+                                  max="60"
+                                  placeholder="np. 12"
+                                  value={teamManualPositions[selectedAdminTeam.reserveJumper] || ''}
+                                  onChange={e => setTeamManualPositions({ ...teamManualPositions, [selectedAdminTeam.reserveJumper!]: e.target.value })}
+                                  className="w-16 bg-slate-950 border border-slate-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none focus:border-yellow-500 font-bold"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       <button 
-                        onClick={handleApplyManualContest}
-                        className="w-full py-2.5 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-yellow-600/20"
+                        onClick={handleApplyTeamManualContest}
+                        className="w-full py-2.5 bg-yellow-600 hover:bg-yellow-500 text-slate-950 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-yellow-600/20 mt-2"
                       >
-                        <Send className="w-4 h-4" /> Zatwierdź i Przelicz Punkty z Konkursu
+                        <Send className="w-4 h-4" /> Zatwierdź Punkty dla {selectedAdminTeam.teamName}
                       </button>
                     </div>
-                  );
-                })}
+                  )}
+                </div>
 
                 {importStatus && <div className="text-xs text-green-400 font-medium">{importStatus}</div>}
               </div>
